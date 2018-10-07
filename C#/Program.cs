@@ -15,6 +15,8 @@ namespace bluepayc
 			// RetrieveSettlementData.Main();
 			// RetrieveTransactionData.Main();
 			// SingleTransactionQuery.Main();
+			// TransactionNotification.Main();
+            // ValidateBPStamp.Main();
 
 			// REBILL
 			// CancelRecurringPayment.Main();
@@ -27,9 +29,12 @@ namespace bluepayc
 			// CancelTransaction.Main();
 			// ChargeCustomerACH.Main();
 			// ChargeCustomerCC.Main();
+            // ChargeCustomerCCLv2Lv3.Main();
 			// CheckCustomerCredit.Main();
+			// CreateCustomerToken.Main();
 			// CustomerDefinedData.Main();
 			// HowToUseToken.Main();
+			// UpdateTransaction.Main();
 			// ReturnFunds.Main();
 			// StorePaymentInformation.Main();
 			// Swipe.Main();

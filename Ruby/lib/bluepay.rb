@@ -1,8 +1,9 @@
 require "net/http"
 require "net/https"
+require "SecureRandom"
 require "uri"
 require "digest/sha2"
-require "digest/md5"
+require "cgi"
 
 # Files
 require_relative "api_request"
@@ -12,6 +13,8 @@ class BluePay
   SERVER = "secure.bluepay.com"
   # Make sure this is the correct path to your CA certificates directory
   RootCA = "/"
+  RootCAFile = "cacert.pem"
+  RELEASE_VERSION = "3.0.2"
 
   def initialize(params = {})
     @ACCOUNT_ID = params[:account_id]
@@ -47,6 +50,7 @@ class BluePay
     @PARAM_HASH['TRANSACTION_TYPE'] = 'SALE'
     @PARAM_HASH['AMOUNT'] = params[:amount]
     @PARAM_HASH['RRNO'] = params[:trans_id] || ''
+    @PARAM_HASH['CUST_TOKEN'] = params[:customer_token] if params[:customer_token]
     @api = "bp10emu"
   end
 
@@ -55,7 +59,12 @@ class BluePay
     @PARAM_HASH['TRANSACTION_TYPE'] = 'AUTH'
     @PARAM_HASH['AMOUNT'] = params[:amount]
     @PARAM_HASH['RRNO'] = params[:trans_id] || ''
+    @PARAM_HASH['CUST_TOKEN'] = params[:customer_token] if params[:customer_token]
     @api = "bp10emu"
+    
+    if params[:new_customer_token] && params[:new_customer_token] != false
+      @PARAM_HASH['NEW_CUST_TOKEN'] = params[:new_customer_token] == true ? SecureRandom.hex(8) : params[:new_customer_token]
+    end
   end
   
   # Capture an Auth
@@ -69,6 +78,14 @@ class BluePay
   # Refund
   def refund(params = {})
     @PARAM_HASH['TRANSACTION_TYPE'] = 'REFUND'
+    @PARAM_HASH['RRNO'] = params[:trans_id]
+    @PARAM_HASH['AMOUNT'] = params[:amount] || ''
+    @api = "bp10emu"
+  end
+
+  # Update
+  def update(params = {})
+    @PARAM_HASH['TRANSACTION_TYPE'] = 'UPDATE'
     @PARAM_HASH['RRNO'] = params[:trans_id]
     @PARAM_HASH['AMOUNT'] = params[:amount] || ''
     @api = "bp10emu"
@@ -102,6 +119,7 @@ class BluePay
     @PARAM_HASH['COUNTRY'] = params[:country]
     @PARAM_HASH['PHONE'] = params[:phone]
     @PARAM_HASH['EMAIL'] = params[:email]
+    @PARAM_HASH['COMPANY_NAME'] = params[:company_name] || ''
   end
 
   # Set customer Phone
@@ -112,6 +130,11 @@ class BluePay
   # Set customer E-mail address
   def email=(email)
     @PARAM_HASH['EMAIL'] = email
+  end
+
+  # Set COMPANY_NAME field
+  def company_name=(company_name)
+    @PARAM_HASH['COMPANY_NAME'] = company_name
   end
 
   # Set MEMO field
@@ -157,6 +180,71 @@ class BluePay
   # Set AMOUNT_MISC field
   def amount_misc=(amount_misc)
     @PARAM_HASH['AMOUNT_MISC'] = amount_misc
+  end
+
+  # Adds information required for level 2 processing.
+  def add_level2_information(params)
+    @PARAM_HASH['LV2_ITEM_TAX_RATE'] = params[:tax_rate] || ''
+    @PARAM_HASH['LV2_ITEM_GOODS_TAX_RATE'] = params[:goods_tax_rate] || ''
+    @PARAM_HASH['LV2_ITEM_GOODS_TAX_AMOUNT'] = params[:goods_tax_amount] || ''
+    @PARAM_HASH['LV2_ITEM_SHIPPING_AMOUNT'] = params[:shipping_amount] || ''
+    @PARAM_HASH['LV2_ITEM_DISCOUNT_AMOUNT'] = params[:discount_amount] || ''
+    @PARAM_HASH['LV2_ITEM_CUST_PO'] = params[:cust_po] || ''
+    @PARAM_HASH['LV2_ITEM_GOODS_TAX_ID'] = params[:goods_tax_id] || ''
+    @PARAM_HASH['LV2_ITEM_TAX_ID'] = params[:tax_id] || ''
+    @PARAM_HASH['LV2_ITEM_CUSTOMER_TAX_ID'] = params[:customer_tax_id] || ''
+    @PARAM_HASH['LV2_ITEM_DUTY_AMOUNT'] = params[:duty_amount] || ''
+    @PARAM_HASH['LV2_ITEM_SUPPLEMENTAL_DATA'] = params[:supplemental_data] || ''
+    @PARAM_HASH['LV2_ITEM_CITY_TAX_RATE'] = params[:city_tax_rate] || ''
+    @PARAM_HASH['LV2_ITEM_CITY_TAX_AMOUNT'] = params[:city_tax_amount] || ''
+    @PARAM_HASH['LV2_ITEM_COUNTY_TAX_RATE'] = params[:county_tax_rate] || ''
+    @PARAM_HASH['LV2_ITEM_COUNTY_TAX_AMOUNT'] = params[:county_tax_amount] || ''
+    @PARAM_HASH['LV2_ITEM_STATE_TAX_RATE'] = params[:state_tax_rate] || ''
+    @PARAM_HASH['LV2_ITEM_STATE_TAX_AMOUNT'] = params[:state_tax_amount] || ''
+    @PARAM_HASH['LV2_ITEM_BUYER_NAME'] = params[:buyer_name] || ''
+    @PARAM_HASH['LV2_ITEM_CUSTOMER_REFERENCE'] = params[:customer_reference] || ''
+    @PARAM_HASH['LV2_ITEM_CUSTOMER_NUMBER'] = params[:customer_number] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_NAME'] = params[:ship_name] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_ADDR1'] = params[:ship_addr1] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_ADDR2'] = params[:ship_addr2] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_CITY'] = params[:ship_city] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_STATE'] = params[:ship_state] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_ZIP'] = params[:ship_zip] || ''
+    @PARAM_HASH['LV2_ITEM_SHIP_COUNTRY'] = params[:ship_country] || ''
+  end
+
+  # Adds a line item for level 3 processing. Repeat method for each item up to 99 items.
+  # For Canadian and AMEX processors, ensure required Level 2 information is present.
+  def add_line_item(params)
+    # Creates line items counter necessary for prefix.
+    @LINE_ITEMS = 0 if !@LINE_ITEMS                                                              
+    @LINE_ITEMS += 1                                                              #  VALUE REQUIRED IN:
+    prefix = "LV3_ITEM#{@LINE_ITEMS}_"                                            #  USA | CANADA
+    @PARAM_HASH[prefix + 'UNIT_COST'] = params[:unit_cost]                        #   *      *
+    @PARAM_HASH[prefix + 'QUANTITY'] = params[:quantity]                          #   *      *
+    @PARAM_HASH[prefix + 'ITEM_SKU'] = params[:item_sku] || ''                    #          *
+    @PARAM_HASH[prefix + 'ITEM_DESCRIPTOR'] = params[:descriptor] || ''           #   *      *
+    @PARAM_HASH[prefix + 'COMMODITY_CODE'] = params[:commodity_code] || ''        #   *      *
+    @PARAM_HASH[prefix + 'PRODUCT_CODE'] = params[:product_code] || ''            #   *    
+    @PARAM_HASH[prefix + 'MEASURE_UNITS'] = params[:measure_units] || ''          #   *      *
+    @PARAM_HASH[prefix + 'ITEM_DISCOUNT'] = params[:item_discount] || ''          #          *
+    @PARAM_HASH[prefix + 'TAX_RATE'] = params[:tax_rate] || ''                    #   *    
+    @PARAM_HASH[prefix + 'GOODS_TAX_RATE'] = params[:goods_tax_rate] || ''        #          *
+    @PARAM_HASH[prefix + 'TAX_AMOUNT'] = params[:tax_amount] || ''                #   *    
+    @PARAM_HASH[prefix + 'GOODS_TAX_AMOUNT'] = params[:goods_tax_amount] || ''    #          *
+    @PARAM_HASH[prefix + 'CITY_TAX_RATE'] = params[:city_tax_rate] || ''          #
+    @PARAM_HASH[prefix + 'CITY_TAX_AMOUNT'] = params[:city_tax_amount] || ''      #
+    @PARAM_HASH[prefix + 'COUNTY_TAX_RATE'] = params[:county_tax_rate] || ''      #
+    @PARAM_HASH[prefix + 'COUNTY_TAX_AMOUNT'] = params[:county_tax_amount] || ''  #
+    @PARAM_HASH[prefix + 'STATE_TAX_RATE'] = params[:state_tax_rate] || ''        #
+    @PARAM_HASH[prefix + 'STATE_TAX_AMOUNT'] = params[:state_tax_amount] || ''    #
+    @PARAM_HASH[prefix + 'CUST_SKU'] = params[:cust_sku] || ''                    #
+    @PARAM_HASH[prefix + 'CUST_PO'] = params[:cust_po] || ''                      #
+    @PARAM_HASH[prefix + 'SUPPLEMENTAL_DATA'] = params[:supplemental_data] || ''  #
+    @PARAM_HASH[prefix + 'GL_ACCOUNT_NUMBER'] = params[:gl_account_number] || ''  #
+    @PARAM_HASH[prefix + 'DIVISION_NUMBER'] = params[:division_number] || ''      #
+    @PARAM_HASH[prefix + 'PO_LINE_NUMBER'] = params[:po_line_number] || ''        #
+    @PARAM_HASH[prefix + 'LINE_ITEM_TOTAL'] = params[:line_item_total] || ''      #   *     
   end
 
   # Set fields for a recurring payment
@@ -321,19 +409,27 @@ class BluePay
     @PARAM_HASH['PROTECT_CUSTOM_ID2'] = params[:protect_custom_id2] || "No" 
     @PARAM_HASH['SHPF_FORM_ID'] = params[:payment_template] || "mobileform01"
     @PARAM_HASH['RECEIPT_FORM_ID'] = params[:receipt_template] || "mobileresult01"
-    @PARAM_HASH['REMOTE_URL'] = params[:receipt_temp_remote_url] || '' 
+    @PARAM_HASH['REMOTE_URL'] = params[:receipt_temp_remote_url] || ''
+    @PARAM_HASH['SHPF_TPS_HASH_TYPE'] = "HMAC_SHA512"
+    @PARAM_HASH['RECEIPT_TPS_HASH_TYPE'] = @PARAM_HASH['SHPF_TPS_HASH_TYPE']
+    @PARAM_HASH['TPS_HASH_TYPE'] = set_hash_type(params[:tps_hash_type] || '')
     @card_types = set_card_types
-    @receipt_tps_def = 'SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF'
+    @receipt_tps_def = 'SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE'
     @receipt_tps_string = set_receipt_tps_string
-    @receipt_tamper_proof_seal = calc_url_tps(@receipt_tps_string)
+    @receipt_tamper_proof_seal = create_tps_hash(@receipt_tps_string, @PARAM_HASH['RECEIPT_TPS_HASH_TYPE'])
     @receipt_url = set_receipt_url
-    @bp10emu_tps_def = add_def_protected_status('MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF')
+    @bp10emu_tps_def = add_def_protected_status('MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF TPS_HASH_TYPE')
     @bp10emu_tps_string = set_bp10emu_tps_string
-    @bp10emu_tamper_proof_seal = calc_url_tps(@bp10emu_tps_string)
-    @shpf_tps_def = add_def_protected_status('SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF SHPF_TPS_DEF')
+    @bp10emu_tamper_proof_seal = create_tps_hash(@bp10emu_tps_string, @PARAM_HASH['TPS_HASH_TYPE'])
+    @shpf_tps_def = add_def_protected_status('SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF TPS_HASH_TYPE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE')
     @shpf_tps_string = set_shpf_tps_string
-    @shpf_tamper_proof_seal = calc_url_tps(@shpf_tps_string)
+    @shpf_tamper_proof_seal = create_tps_hash(@shpf_tps_string, @PARAM_HASH['SHPF_TPS_HASH_TYPE'])
     return calc_url_response
+  end
+
+  def set_hash_type(chosen_hash)
+    default_hash = "HMAC_SHA512"
+    ["MD5", "SHA256", "SHA512", "HMAC_SHA256"].include?(chosen_hash.upcase) ? chosen_hash.upcase : default_hash
   end
 
   # Sets the types of credit card images to use on the Simple Hosted Payment Form. Must be used with generate_url.
@@ -346,41 +442,42 @@ class BluePay
 
   # Sets the receipt Tamperproof Seal string. Must be used with generate_url.
   def set_receipt_tps_string
-    [@SECRET_KEY, 
-    @ACCOUNT_ID, 
+    [@ACCOUNT_ID, 
     @PARAM_HASH['RECEIPT_FORM_ID'], 
     @PARAM_HASH['RETURN_URL'], 
     @PARAM_HASH['DBA'], 
     @PARAM_HASH['AMEX_IMAGE'], 
     @PARAM_HASH['DISCOVER_IMAGE'], 
-    @receipt_tps_def].join('')
+    @receipt_tps_def,
+    @PARAM_HASH['RECEIPT_TPS_HASH_TYPE']].join('')
   end
 
   # Sets the bp10emu string that will be used to create a Tamperproof Seal. Must be used with generate_url.
   def set_bp10emu_tps_string
     bp10emu = [
-    @SECRET_KEY,
     @ACCOUNT_ID,
     @receipt_url,
     @receipt_url,
     @receipt_url,
     @PARAM_HASH['MODE'],
     @PARAM_HASH['TRANSACTION_TYPE'],
-    @bp10emu_tps_def].join('')
+    @bp10emu_tps_def,
+    @PARAM_HASH['TPS_HASH_TYPE']].join('')
     return add_string_protected_status(bp10emu)
   end
 
   # Sets the Simple Hosted Payment Form string that will be used to create a Tamperproof Seal. Must be used with generate_url.
   def set_shpf_tps_string 
-    shpf = ([@SECRET_KEY,
-    @PARAM_HASH['SHPF_FORM_ID'], 
+    shpf = ([@PARAM_HASH['SHPF_FORM_ID'], 
     @ACCOUNT_ID, 
     @PARAM_HASH['DBA'], 
     @bp10emu_tamper_proof_seal, 
     @PARAM_HASH['AMEX_IMAGE'], 
     @PARAM_HASH['DISCOVER_IMAGE'], 
-    @bp10emu_tps_def, 
-    @shpf_tps_def].join(''))
+    @bp10emu_tps_def,
+    @PARAM_HASH['TPS_HASH_TYPE'], 
+    @shpf_tps_def,
+    @PARAM_HASH['SHPF_TPS_HASH_TYPE']].join(''))
     return add_string_protected_status(shpf)
   end
 
@@ -390,13 +487,14 @@ class BluePay
       return @PARAM_HASH['REMOTE_URL']
     else
       return 'https://secure.bluepay.com/interfaces/shpf?SHPF_FORM_ID=' + @PARAM_HASH['RECEIPT_FORM_ID'] + 
-      '&SHPF_ACCOUNT_ID=' + ACCOUNT_ID + 
-      '&SHPF_TPS_DEF='    + url_encode(@receipt_tps_def) + 
-      '&SHPF_TPS='        + url_encode(@receipt_tamper_proof_seal) + 
-      '&RETURN_URL='      + url_encode(@PARAM_HASH['RETURN_URL']) + 
-      '&DBA='             + url_encode(@PARAM_HASH['DBA']) + 
-      '&AMEX_IMAGE='      + url_encode(@PARAM_HASH['AMEX_IMAGE']) + 
-      '&DISCOVER_IMAGE='  + url_encode(@PARAM_HASH['DISCOVER_IMAGE'])
+      '&SHPF_ACCOUNT_ID='     + @ACCOUNT_ID + 
+      '&SHPF_TPS_DEF='        + url_encode(@receipt_tps_def) + 
+      '&SHPF_TPS_HASH_TYPE='  + url_encode(@PARAM_HASH['RECEIPT_TPS_HASH_TYPE']) +
+      '&SHPF_TPS='            + url_encode(@receipt_tamper_proof_seal) + 
+      '&RETURN_URL='          + url_encode(@PARAM_HASH['RETURN_URL']) + 
+      '&DBA='                 + url_encode(@PARAM_HASH['DBA']) + 
+      '&AMEX_IMAGE='          + url_encode(@PARAM_HASH['AMEX_IMAGE']) + 
+      '&DISCOVER_IMAGE='      + url_encode(@PARAM_HASH['DISCOVER_IMAGE'])
     end
   end
 
@@ -439,6 +537,7 @@ class BluePay
     'SHPF_FORM_ID='       .concat(url_encode    (@PARAM_HASH['SHPF_FORM_ID'])       ) +
     '&SHPF_ACCOUNT_ID='   .concat(url_encode    (@ACCOUNT_ID)                       ) +
     '&SHPF_TPS_DEF='      .concat(url_encode    (@shpf_tps_def)                     ) +
+    '&SHPF_TPS_HASH_TYPE='.concat(url_encode    (@PARAM_HASH['SHPF_TPS_HASH_TYPE']) ) +
     '&SHPF_TPS='          .concat(url_encode    (@shpf_tamper_proof_seal)           ) +
     '&MODE='              .concat(url_encode    (@PARAM_HASH['MODE'])               ) +
     '&TRANSACTION_TYPE='  .concat(url_encode    (@PARAM_HASH['TRANSACTION_TYPE'])   ) +
@@ -456,6 +555,7 @@ class BluePay
     '&DISCOVER_IMAGE='    .concat(url_encode    (@PARAM_HASH['DISCOVER_IMAGE'])     ) +
     '&REDIRECT_URL='      .concat(url_encode    (@receipt_url)                      ) +
     '&TPS_DEF='           .concat(url_encode    (@bp10emu_tps_def)                  ) +
+    '&TPS_HASH_TYPE='     .concat(url_encode    (@PARAM_HASH['TPS_HASH_TYPE'])      ) +
     '&CARD_TYPES='        .concat(url_encode    (@card_types)                       )
   end
 end

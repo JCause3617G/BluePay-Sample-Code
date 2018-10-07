@@ -54,6 +54,7 @@ public:
     void update(const unsigned char *message, unsigned int len);
     void final(unsigned char *digest);
     static const unsigned int DIGEST_SIZE = ( 512 / 8);
+    static const unsigned int HMAC_BUF_LEN = 4096;
  
 protected:
     void transform(const unsigned char *message, unsigned int block_nb);
@@ -65,7 +66,8 @@ protected:
  
  
 std::string sha512(std::string input);
- 
+std::string sha512Hmac(std::string message, std::string ipad, std::string opad);
+
 #define SHA2_SHFR(x, n)    (x >> n)
 #define SHA2_ROTR(x, n)   ((x >> n) | (x << ((sizeof(x) << 3) - n)))
 #define SHA2_ROTL(x, n)   ((x << n) | (x >> ((sizeof(x) << 3) - n)))

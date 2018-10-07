@@ -11,6 +11,7 @@ Imports System.IO
 Imports System.Text.RegularExpressions
 Imports System.Security.Cryptography.X509Certificates
 Imports System.Collections
+Imports System.Collections.Generic
 
 Namespace BPVB
 
@@ -18,6 +19,7 @@ Namespace BPVB
     ''' This is the BluePayPayment object.
     ''' </summary>
     Public Class BluePay
+        Public Const RELEASE_VERSION = "3.0.1"
 
         ' Required for every transaction
         Private accountID As String = ""
@@ -47,8 +49,11 @@ Namespace BPVB
         ' Optional for auth or sale
         Private phone As String = ""
         Private email As String = ""
+        Private companyName As String = ""
         Private country As String = ""
-
+        Private newCustToken As String = ""
+        Private custToken As String = ""
+        
         ' Transaction variables
         Private amount As String = ""
         Private transType As String = ""
@@ -77,6 +82,10 @@ Namespace BPVB
         Private amountFood As String = ""
         Private amountMisc As String = ""
         Private memo As String = ""
+        Private level2Info As Dictionary(Of String, String) = New Dictionary(Of String, String)
+
+        ' Level3 Field
+        Private lineItems As ArrayList = New ArrayList()
 
         ' Generating Simple Hosted Payment Form URL fields
         Private dba As String = ""
@@ -90,6 +99,8 @@ Namespace BPVB
         Private shpfFormID As String = ""
         Private receiptFormID As String = ""
         Private remoteURL As String = ""
+        Private shpfTpsHashType As String = ""
+        Private receiptTpsHashType As String = ""
         Private cardTypes As String = ""
         Private receiptTpsDef As String = ""
         Private receiptTpsString As String = ""
@@ -112,6 +123,7 @@ Namespace BPVB
         Private excludeErrors As String = ""
 
         Private TPS As String = ""
+        Private tpsHashType As String = "HMAC_SHA512"
         Private api As String = ""
         Public response As String = ""
 
@@ -120,7 +132,6 @@ Namespace BPVB
             Me.secretKey = secretKey
             Me.mode = mode
         End Sub
-
 
         ''' <summary>
         ''' Sets Customer Information
@@ -136,7 +147,7 @@ Namespace BPVB
         ''' <param name="phone"></param>
         ''' <param name="email"></param>
         ''' 
-        Public Sub setCustomerInformation(Optional ByVal firstName As String = "", Optional ByVal lastName As String = "", Optional ByVal address1 As String = "", Optional ByVal address2 As String = "", Optional ByVal city As String = "", Optional ByVal state As String = "", Optional ByVal zipCode As String = "", Optional ByVal country As String = "", Optional ByVal phone As String = "", Optional ByVal email As String = "")
+        Public Sub setCustomerInformation(Optional ByVal firstName As String = "", Optional ByVal lastName As String = "", Optional ByVal address1 As String = "", Optional ByVal address2 As String = "", Optional ByVal city As String = "", Optional ByVal state As String = "", Optional ByVal zipCode As String = "", Optional ByVal country As String = "", Optional ByVal phone As String = "", Optional ByVal email As String = "", Optional ByVal companyName As String = "")
             Me.name1 = firstName
             Me.name2 = lastName
             Me.addr1 = address1
@@ -147,6 +158,7 @@ Namespace BPVB
             Me.country = country
             Me.phone = phone
             Me.email = email
+            Me.companyName = companyName
         End Sub
 
         ''' <summary>
@@ -187,6 +199,79 @@ Namespace BPVB
             Me.accountNum = accNum
             Me.accountType = accType
             Me.docType = docType 'optional'
+        End Sub
+
+        ''' <summary>
+        ''' Adds information required for level 2 processing.
+        ''' </summary>
+        Public sub addLevel2Information(Optional ByVal taxRate As String = "", Optional ByVal goodsTaxRate As String = "", Optional ByVal goodsTaxAmount As String = "", Optional ByVal shippingAmount As String = "", Optional ByVal discountAmount As String = "", Optional ByVal custPO As String = "", Optional ByVal goodsTaxID As String = "", Optional ByVal taxID As String = "", Optional ByVal customerTaxID As String = "", Optional ByVal dutyAmount As String = "", Optional ByVal supplementalData As String = "", Optional ByVal cityTaxRate As String = "", Optional ByVal cityTaxAmount As String = "", Optional ByVal countyTaxRate As String = "", Optional ByVal countyTaxAmount As String = "", Optional ByVal stateTaxRate As String = "", Optional ByVal stateTaxAmount As String = "", Optional ByVal buyerName As String = "", Optional ByVal customerReference As String = "", Optional ByVal customerNumber As String = "", Optional ByVal shipName As String = "", Optional ByVal shipAddr1 As String = "", Optional ByVal shipAddr2 As String = "", Optional ByVal shipCity As String = "", Optional ByVal shipState As String = "", Optional ByVal shipZip As String = "", Optional ByVal shipCountry As String = "")
+            me.level2Info.Add( "LV2_ITEM_TAX_RATE", taxRate )
+            me.level2Info.Add( "LV2_ITEM_GOODS_TAX_RATE", goodsTaxRate )
+            me.level2Info.Add( "LV2_ITEM_GOODS_TAX_AMOUNT", goodsTaxAmount )
+            me.level2Info.Add( "LV2_ITEM_SHIPPING_AMOUNT", shippingAmount )
+            me.level2Info.Add( "LV2_ITEM_DISCOUNT_AMOUNT", discountAmount )
+            me.level2Info.Add( "LV2_ITEM_CUST_PO", custPO )
+            me.level2Info.Add( "LV2_ITEM_GOODS_TAX_ID", goodsTaxID )
+            me.level2Info.Add( "LV2_ITEM_TAX_ID", taxID )
+            me.level2Info.Add( "LV2_ITEM_CUSTOMER_TAX_ID", customerTaxID )
+            me.level2Info.Add( "LV2_ITEM_DUTY_AMOUNT", dutyAmount )
+            me.level2Info.Add( "LV2_ITEM_SUPPLEMENTAL_DATA", supplementalData )
+            me.level2Info.Add( "LV2_ITEM_CITY_TAX_RATE", cityTaxRate )
+            me.level2Info.Add( "LV2_ITEM_CITY_TAX_AMOUNT", cityTaxAmount )
+            me.level2Info.Add( "LV2_ITEM_COUNTY_TAX_RATE", countyTaxRate )
+            me.level2Info.Add( "LV2_ITEM_COUNTY_TAX_AMOUNT", countyTaxAmount )
+            me.level2Info.Add( "LV2_ITEM_STATE_TAX_RATE", stateTaxRate )
+            me.level2Info.Add( "LV2_ITEM_STATE_TAX_AMOUNT", stateTaxAmount )
+            me.level2Info.Add( "LV2_ITEM_BUYER_NAME", buyerName )
+            me.level2Info.Add( "LV2_ITEM_CUSTOMER_REFERENCE", customerReference )
+            me.level2Info.Add( "LV2_ITEM_CUSTOMER_NUMBER", customerNumber )
+            me.level2Info.Add( "LV2_ITEM_SHIP_NAME", shipName )
+            me.level2Info.Add( "LV2_ITEM_SHIP_ADDR1", shipAddr1 )
+            me.level2Info.Add( "LV2_ITEM_SHIP_ADDR2", shipAddr2 )
+            me.level2Info.Add( "LV2_ITEM_SHIP_CITY", shipCity )
+            me.level2Info.Add( "LV2_ITEM_SHIP_STATE", shipState )
+            me.level2Info.Add( "LV2_ITEM_SHIP_ZIP", shipZip )
+            me.level2Info.Add( "LV2_ITEM_SHIP_COUNTRY", shipCountry )
+        End Sub
+
+        ''' <summary>
+        ''' Adds a line item for level 3 processing. Repeat method for each item up to 99 items.
+        ''' For Canadian and AMEX processors, ensure required Level 2 information is present.
+        ''' </summary>
+        Public sub addLineItem(ByVal unitCost As String, ByVal quantity As String, Optional ByVal itemSKU As String = "", Optional ByVal descriptor As String = "", Optional ByVal commodityCode As String = "", Optional ByVal productCode As String = "", Optional ByVal measureUnits As String = "", Optional ByVal itemDiscount As String = "", Optional ByVal taxRate As String = "", Optional ByVal goodsTaxRate As String = "", Optional ByVal taxAmount As String = "", Optional ByVal goodsTaxAmount As String = "", Optional ByVal cityTaxRate As String = "", Optional ByVal cityTaxAmount As String = "", Optional ByVal countyTaxRate As String = "", Optional ByVal countyTaxAmount As String = "", Optional ByVal stateTaxRate As String = "", Optional ByVal stateTaxAmount As String = "", Optional ByVal custSKU As String = "", Optional ByVal custPO As String = "", Optional ByVal supplementalData As String = "", Optional ByVal glAccountNumber As String = "", Optional ByVal divisionNumber As String = "", Optional ByVal poLineNumber As String = "", Optional ByVal lineItemTotal As String = "")
+            dim i As String = (me.lineItems.Count + 1 ).ToString
+            dim prefix As String = "LV3_ITEM" & i & "_"
+
+            dim item As Dictionary(Of String, String) = new Dictionary(Of String, String)
+
+            item.Add( prefix + "UNIT_COST", unitCost )
+            item.Add( prefix + "QUANTITY", quantity )
+            item.Add( prefix + "ITEM_SKU", itemSKU )
+            item.Add( prefix + "ITEM_DESCRIPTOR", descriptor )
+            item.Add( prefix + "COMMODITY_CODE", commodityCode )
+            item.Add( prefix + "PRODUCT_CODE", productCode )
+            item.Add( prefix + "MEASURE_UNITS", measureUnits )
+            item.Add( prefix + "ITEM_DISCOUNT", itemDiscount )
+            item.Add( prefix + "TAX_RATE", taxRate )
+            item.Add( prefix + "GOODS_TAX_RATE", goodsTaxRate )
+            item.Add( prefix + "TAX_AMOUNT", taxAmount )
+            item.Add( prefix + "GOODS_TAX_AMOUNT", goodsTaxAmount )
+            item.Add( prefix + "CITY_TAX_RATE", cityTaxRate )
+            item.Add( prefix + "CITY_TAX_AMOUNT", cityTaxAmount )
+            item.Add( prefix + "COUNTY_TAX_RATE", countyTaxRate )
+            item.Add( prefix + "COUNTY_TAX_AMOUNT", countyTaxAmount )
+            item.Add( prefix + "STATE_TAX_RATE", stateTaxRate )
+            item.Add( prefix + "STATE_TAX_AMOUNT", stateTaxAmount )
+            item.Add( prefix + "CUST_SKU", custSKU )
+            item.Add( prefix + "CUST_PO", custPO )
+            item.Add( prefix + "SUPPLEMENTAL_DATA", supplementalData )
+            item.Add( prefix + "GL_ACCOUNT_NUMBER", glAccountNumber )
+            item.Add( prefix + "DIVISION_NUMBER", divisionNumber )
+            item.Add( prefix + "PO_LINE_NUMBER", poLineNumber )
+            item.Add( prefix + "LINE_ITEM_TOTAL", lineItemTotal )
+
+            me.lineItems.Add(item)
+
         End Sub
 
         ''' <summary>
@@ -286,6 +371,19 @@ Namespace BPVB
         End Sub
 
         ''' <summary>
+        ''' Runs a Sale Transaction
+        ''' </summary>
+        ''' <param name="amount"></param>
+        ''' <param name="customerToken"></param>
+        ''' 
+        Public Sub sale(ByVal amount As String, ByVal customerToken As String)
+            Me.transType = "SALE"
+            Me.amount = amount
+            Me.custToken = customerToken
+            Me.api = "bp10emu"
+        End Sub
+
+        ''' <summary>
         ''' Runs an Auth Transaction
         ''' </summary>
         ''' <param name="amount"></param>
@@ -306,6 +404,79 @@ Namespace BPVB
             Me.transType = "AUTH"
             Me.amount = amount
             Me.masterID = transactionID
+            Me.api = "bp10emu"
+        End Sub
+
+        ''' <summary>
+        ''' Runs an Auth Transaction
+        ''' </summary>
+        ''' <param name="amount"></param>
+        ''' <param name="newCustomerToken"></param>
+        ''' 
+        Public Sub auth(ByVal amount As String, ByVal newCustomerToken As String)
+            Me.transType = "AUTH"
+            Me.amount = amount
+            If newCustomerToken.ToLower() = "true" Then
+                Me.newCustToken = GetRandomString(16)
+            Elseif newCustomerToken.ToLower() <> "false" Then
+                Me.newCustToken = newCustomerToken
+            End If 
+            Me.api = "bp10emu"
+        End Sub
+
+        ''' <summary>
+        ''' Creates a random alphanumeric string
+        ''' </summary>
+        ''' <param name="length"></param>
+        ''' <param name="newCustomerToken"></param>
+        ''' 
+        Public Function GetRandomString(ByVal iLength As Integer) As String
+            Dim sResult As String = ""
+            Dim rdm As New Random()
+
+            Dim characters() As String = {"a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","1","2","3","4","5","6","7","8","9","0","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","1","2","3","4","5","6","7","8","9","0"}
+
+            For i As Integer = 1 To iLength
+                sResult &= characters(rdm.Next(0, characters.length - 1 ))
+            Next
+
+            Return sResult
+        End Function
+
+        ''' <summary>
+        ''' Runs an Auth Transaction
+        ''' </summary>
+        ''' <param name="amount"></param>
+        ''' <param name="customerToken"></param>
+        ''' 
+        Public Sub auth(ByVal amount As String, ByVal customerToken As String)
+            Me.transType = "AUTH"
+            Me.amount = amount
+            Me.custToken = customerToken
+            Me.api = "bp10emu"
+        End Sub
+       
+        ''' <summary>
+        ''' Updates a Transaction
+        ''' </summary>
+        ''' <param name="masterID"></param>
+        ''' 
+        Public Sub update(ByVal masterID As String)
+            Me.transType = "UPDATE"
+            Me.masterID = masterID
+            Me.api = "bp10emu"
+        End Sub
+
+        ''' <summary>
+        ''' Updates a Transaction
+        ''' </summary>
+        ''' <param name="masterID"></param>
+        ''' <param name="amount"></param>
+        ''' <remarks></remarks>
+        Public Sub update(ByVal transactionID As String, ByVal amount As String)
+            Me.transType = "UPDATE"
+            Me.masterID = transactionID
+            Me.amount = amount
             Me.api = "bp10emu"
         End Sub
 
@@ -467,6 +638,15 @@ Namespace BPVB
             Me.email = email
         End Sub
 
+        ''' <summary>
+        ''' Sets Company_Name Field
+        ''' </summary>
+        ''' <param name="companyName"></param>
+        ''' 
+        Public Sub setCompanyName(ByVal companyName As String)
+            Me.companyName = companyName
+        End Sub
+
         Public Sub set_Param(ByVal Name As String, ByVal Value As String)
             Name = Value
         End Sub
@@ -543,15 +723,53 @@ Namespace BPVB
             Me.excludeErrors = excludeErrors
         End Sub
 
-
+        ''' <summary>
+        ''' Generates the TAMPER_PROOF_SEAL to used to validate each transaction
+        ''' </summary>
+        '''
+        Public Function generateTPS(ByVal message As String, ByVal hashType As String) As String
+            Dim result As String
+            Dim encode As ASCIIEncoding = New ASCIIEncoding
+            If hashType = "HMAC_SHA256" Then
+                Dim secretKeyBytes() As Byte = encode.GetBytes(Me.secretKey)
+                Dim messageBytes() As Byte = encode.GetBytes(message)
+                Dim hmac As HMACSHA256 = New HMACSHA256(secretKeyBytes)
+                Dim hashBytes() As Byte = hmac.ComputeHash(messageBytes)
+                result = ByteArrayToString(hashBytes)
+            Elseif hashType = "SHA512" Then
+                Dim sha512 As SHA512 = New SHA512Managed()
+                Dim hash() As Byte
+                Dim buffer() As Byte = encode.GetBytes(Me.secretKey + message)
+                hash = sha512.ComputeHash(buffer)
+                result = ByteArrayToString(hash)
+            Elseif hashType = "SHA256" Then
+                Dim sha256 As SHA256 = New SHA256Managed()
+                Dim hash() As Byte
+                Dim buffer() As Byte = encode.GetBytes(Me.secretKey + message)
+                hash = sha256.ComputeHash(buffer)
+                result = ByteArrayToString(hash)
+            Elseif hashType = "MD5" Then
+                Dim md5 As MD5 = New MD5CryptoServiceProvider
+                Dim hash() As Byte
+                Dim buffer() As Byte = encode.GetBytes(Me.secretKey + message)
+                hash = md5.ComputeHash(buffer)
+                result = ByteArrayToString(hash)
+            Else
+                Dim secretKeyBytes() As Byte = encode.GetBytes(Me.secretKey)
+                Dim messageBytes() As Byte = encode.GetBytes(message)
+                Dim hmac As HMACSHA512 = New HMACSHA512(secretKeyBytes)
+                Dim hashBytes() As Byte = hmac.ComputeHash(messageBytes)
+                result = ByteArrayToString(hashBytes)
+            End If
+            Return result 
+        End Function
 
         ''' <summary>
         ''' Calculates TAMPER_PROOF_SEAL for bp10emu API
         ''' </summary>
         '''
         Public Sub calcTPS()
-            Dim tps As String = Me.secretKey _
-                        + Me.accountID _
+            Dim tps As String = Me.accountID _
                         + Me.transType _
                         + Me.amount _
                         + Me.doRebill _
@@ -561,12 +779,7 @@ Namespace BPVB
                         + Me.rebillAmount _
                         + Me.masterID _
                         + Me.mode
-            Dim sha512 As SHA512 = New SHA512CryptoServiceProvider
-            Dim hash() As Byte
-            Dim encode As ASCIIEncoding = New ASCIIEncoding
-            Dim buffer() As Byte = encode.GetBytes(tps)
-            hash = sha512.ComputeHash(buffer)
-            Me.TPS = ByteArrayToString(hash)
+            Me.TPS = generateTPS(tps, Me.tpsHashType)
         End Sub
 
         ''' <summary>
@@ -574,16 +787,10 @@ Namespace BPVB
         ''' </summary>
         '''
         Public Sub calcReportTPS()
-            Dim tps As String = Me.secretKey _
-                        + Me.accountID _
+            Dim tps As String = Me.accountID _
                         + Me.reportStartDate _
                         + Me.reportEndDate
-            Dim md5 As MD5 = New MD5CryptoServiceProvider
-            Dim hash() As Byte
-            Dim encode As ASCIIEncoding = New ASCIIEncoding
-            Dim buffer() As Byte = encode.GetBytes(tps)
-            hash = md5.ComputeHash(buffer)
-            Me.TPS = ByteArrayToString(hash)
+            Me.TPS = generateTPS(tps, Me.tpsHashType)
         End Sub
 
 
@@ -592,43 +799,11 @@ Namespace BPVB
         ''' </summary>
         '''
         Public Sub calcRebillTPS()
-            Dim tps As String = Me.secretKey _
-                        + Me.accountID _
+            Dim tps As String = Me.accountID _
                         + Me.transType _
                         + Me.rebillID
-            Dim md5 As MD5 = New MD5CryptoServiceProvider
-            Dim hash() As Byte
-            Dim encode As ASCIIEncoding = New ASCIIEncoding
-            Dim buffer() As Byte = encode.GetBytes(tps)
-            hash = md5.ComputeHash(buffer)
-            Me.TPS = ByteArrayToString(hash)
+            Me.TPS = generateTPS(tps, Me.tpsHashType)
         End Sub
-
-        ''' <summary>
-        ''' Calculates BP_STAMP for trans notify post API
-        ''' </summary>
-        '''
-        Public Function calcTransNotifyTPS(ByVal secret_key As String, ByVal trans_id As String, ByVal trans_status As String, ByVal trans_type As String, ByVal amount As String, ByVal batch_id As String, ByVal batch_status As String, ByVal total_count As String, ByVal total_amount As String, ByVal batch_upload_id As String, ByVal rebill_id As String, ByVal rebill_amount As String, ByVal rebill_status As String)
-            Dim tps As String = Me.secret_key _
-                        + Me.trans_id _
-                        + Me.trans_status _
-                        + Me.trans_type _
-                        + Me.amount _
-                        + Me.batch_id _
-                        + Me.batch_status _
-                        + Me.total_count _
-                        + Me.total_amount _
-                        + Me.batch_upload_id _
-                        + Me.rebill_id _
-                        + Me.rebill_amount _
-                        + Me.rebill_status
-            Dim md5 As MD5 = New MD5CryptoServiceProvider
-            Dim hash() As Byte
-            Dim encode As ASCIIEncoding = New ASCIIEncoding
-            Dim buffer() As Byte = encode.GetBytes(tps)
-            hash = md5.ComputeHash(buffer)
-            Return ByteArrayToString(hash)
-        End Function
 
         'This is used to convert a byte array to a hex string
         Private Shared Function ByteArrayToString(ByVal arrInput() As Byte) As String
@@ -703,7 +878,7 @@ Namespace BPVB
         ''' <param name="paymentTemplate"></param>
         ''' <param name="receiptTemplate"></param>
         ''' <param name="receiptTempRemoteURL"></param>
-        Public Function generateURL(Optional ByVal merchantName As String = "", Optional ByVal returnURL As String = "", Optional ByVal transactionType As String = "",  Optional ByVal acceptDiscover As String = "", Optional ByVal acceptAmex As String = "", Optional ByVal amount As String = "", Optional ByVal protectAmount As String = "No", Optional ByVal rebilling As String = "No", Optional ByVal rebProtect As String = "Yes", Optional ByVal rebAmount As String = "", Optional ByVal rebCycles As String = "", Optional ByVal rebStartDate As String = "", Optional ByVal rebFrequency As String = "", Optional ByVal customID1 As String = "", Optional ByVal protectCustomID1 = "No", Optional ByVal customID2 As String = "", Optional ByVal protectCustomID2 As String = "No", Optional ByVal paymentTemplate As String = "mobileform01", Optional ByVal receiptTemplate As String = "mobileresult01", Optional ByVal receiptTempRemoteURL As String = "") As String
+        Public Function generateURL(Optional ByVal merchantName As String = "", Optional ByVal returnURL As String = "", Optional ByVal transactionType As String = "",  Optional ByVal acceptDiscover As String = "", Optional ByVal acceptAmex As String = "", Optional ByVal amount As String = "", Optional ByVal protectAmount As String = "No", Optional ByVal rebilling As String = "No", Optional ByVal rebProtect As String = "Yes", Optional ByVal rebAmount As String = "", Optional ByVal rebCycles As String = "", Optional ByVal rebStartDate As String = "", Optional ByVal rebFrequency As String = "", Optional ByVal customID1 As String = "", Optional ByVal protectCustomID1 = "No", Optional ByVal customID2 As String = "", Optional ByVal protectCustomID2 As String = "No", Optional ByVal paymentTemplate As String = "mobileform01", Optional ByVal receiptTemplate As String = "mobileresult01", Optional ByVal receiptTempRemoteURL As String = "", Optional ByVal tpsHashType As String = "") As String
             Me.dba = merchantName
             Me.returnURL = returnURL
             Me.transType = transactionType
@@ -724,20 +899,43 @@ Namespace BPVB
             Me.shpfFormID = paymentTemplate
             Me.receiptFormID = receiptTemplate
             Me.remoteURL = receiptTempRemoteURL
+            Me.shpfTpsHashType = "HMAC_SHA512"
+            Me.receiptTpsHashType = Me.shpfTpsHashType
+            Me.tpsHashType = setHashType(tpsHashType)
             Me.cardTypes = setCardTypes()
-            Me.receiptTpsDef = "SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF"
+            Me.receiptTpsDef = "SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE"
             Me.receiptTpsString = setReceiptTpsString()
-            Me.receiptTamperProofSeal = calcURLTps(Me.receiptTpsString)
+            Me.receiptTamperProofSeal = generateTPS(Me.receiptTpsString, Me.receiptTpsHashType)
             Me.receiptURL = setReceiptURL()
-            Me.bp10emuTpsDef = addDefProtectedStatus("MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF")
+            Me.bp10emuTpsDef = addDefProtectedStatus("MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF TPS_HASH_TYPE")
             Me.bp10emuTpsString = setBp10emuTpsString()
-            Me.bp10emuTamperProofSeal = calcURLTps(Me.bp10emuTpsString)
-            Me.shpfTpsDef = addDefProtectedStatus("SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF SHPF_TPS_DEF")
+            Me.bp10emuTamperProofSeal = generateTPS(Me.bp10emuTpsString, Me.tpsHashType)
+            Me.shpfTpsDef = addDefProtectedStatus("SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF TPS_HASH_TYPE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE")
             Me.shpfTpsString = setShpfTpsString()
-            Me.shpfTamperProofSeal = calcURLTps(Me.shpfTpsString)
+            Me.shpfTamperProofSeal = generateTPS(Me.shpfTpsString, Me.shpfTpsHashType)
             Return calcURLResponse()
         End Function
 
+        ''' <summary>
+        ''' Validates chosen hash type or returns default hash type
+        ''' </summary>
+        Public Function setHashType(ByVal chosenHash As String) As String
+            Dim defaultHash As String = "HMAC_SHA512"
+            chosenHash = chosenHash.ToUpper()
+            Dim result As String = ""
+            Dim hashes As ArrayList = New ArrayList(4)
+            hashes.Add("MD5")
+            hashes.Add("SHA256")
+            hashes.Add("SHA512")
+            hashes.Add("HMAC_SHA256")
+            If hashes.Contains(chosenHash) Then
+                result = chosenHash
+            Else
+                result = defaultHash
+            End If 
+            Return result
+        End Function
+        
         ''' <summary>
         ''' Sets the types of credit card images to use on the Simple Hosted Payment Form, used in public string GenerateURL()
         ''' </summary>
@@ -752,14 +950,14 @@ Namespace BPVB
         ''' Sets the receipt Tamperproof Seal string, used in public string GenerateURL()
         ''' </summary>
         Public Function setReceiptTpsString() As String
-            Return Me.secretKey + Me.accountID + Me.receiptFormID + Me.returnURL + Me.dba + Me.amexImage + Me.discoverImage + Me.receiptTpsDef
+            Return Me.accountID + Me.receiptFormID + Me.returnURL + Me.dba + Me.amexImage + Me.discoverImage + Me.receiptTpsDef + Me.receiptTpsHashType
         End Function
 
         ''' <summary>
         ''' Sets the bp10emu string that will be used to create a Tamperproof Seal, used in public string GenerateURL()
         ''' </summary>
         Public Function setBp10emuTpsString() As String
-            Dim bp10emu As String = Me.secretKey + Me.accountID + Me.receiptURL + Me.receiptURL + Me.receiptURL + Me.mode + Me.transType + Me.bp10emuTpsDef
+            Dim bp10emu As String = Me.accountID + Me.receiptURL + Me.receiptURL + Me.receiptURL + Me.mode + Me.transType + Me.bp10emuTpsDef + Me.tpsHashType
             Return addStringProtectedStatus(bp10emu)
         End Function
 
@@ -767,7 +965,7 @@ Namespace BPVB
         ''' Sets the Simple Hosted Payment Form string that will be used to create a Tamperproof Seal, used in public string GenerateURL()
         ''' </summary>
         Public Function setShpfTpsString() As String
-            Dim shpf As String = Me.secretKey + Me.shpfFormID + Me.accountID + Me.dba + Me.bp10emuTamperProofSeal + Me.amexImage + Me.discoverImage + Me.bp10emuTpsDef + Me.shpfTpsDef
+            Dim shpf As String = Me.shpfFormID + Me.accountID + Me.dba + Me.bp10emuTamperProofSeal + Me.amexImage + Me.discoverImage + Me.bp10emuTpsDef + Me.tpsHashType + Me.shpfTpsDef + Me.shpfTpsHashType
             Return addStringProtectedStatus(shpf)
         End Function
 
@@ -780,13 +978,14 @@ Namespace BPVB
                 output = Me.remoteURL
             Else 
                 output =  "https://secure.bluepay.com/interfaces/shpf?SHPF_FORM_ID=" + Me.receiptFormID + _
-                "&SHPF_ACCOUNT_ID=" + Me.accountID +  _
-                "&SHPF_TPS_DEF="    + encodeURL(Me.receiptTpsDef) +  _
-                "&SHPF_TPS="        + encodeURL(Me.receiptTamperProofSeal) +  _
-                "&RETURN_URL="      + encodeURL(Me.returnURL) + _
-                "&DBA="             + encodeURL(Me.dba) +  _
-                "&AMEX_IMAGE="      + encodeURL(Me.amexImage) +  _
-                "&DISCOVER_IMAGE="  + encodeURL(Me.discoverImage)
+                "&SHPF_ACCOUNT_ID="     + Me.accountID +  _
+                "&SHPF_TPS_DEF="        + encodeURL(Me.receiptTpsDef) +  _
+                "&SHPF_TPS_HASH_TYPE="  + encodeURL(Me.receiptTpsHashType) +  _
+                "&SHPF_TPS="            + encodeURL(Me.receiptTamperProofSeal) +  _
+                "&RETURN_URL="          + encodeURL(Me.returnURL) + _
+                "&DBA="                 + encodeURL(Me.dba) +  _
+                "&AMEX_IMAGE="          + encodeURL(Me.amexImage) +  _
+                "&DISCOVER_IMAGE="      + encodeURL(Me.discoverImage)
             End If
             Return output
         End Function
@@ -851,6 +1050,7 @@ Namespace BPVB
             "SHPF_FORM_ID="         + encodeURL(Me.shpfFormID)               +  _
             "&SHPF_ACCOUNT_ID="     + encodeURL(Me.accountID)                +  _
             "&SHPF_TPS_DEF="        + encodeURL(Me.shpfTpsDef)               +  _
+            "&SHPF_TPS_HASH_TYPE="  + encodeURL(Me.shpfTpsHashType)          +  _
             "&SHPF_TPS="            + encodeURL(Me.shpfTamperProofSeal)      +  _
             "&MODE="                + encodeURL(Me.mode)                     +  _
             "&TRANSACTION_TYPE="    + encodeURL(Me.transType)                +  _
@@ -868,11 +1068,13 @@ Namespace BPVB
             "&DISCOVER_IMAGE="      + encodeURL(Me.discoverImage)            +  _
             "&REDIRECT_URL="        + encodeURL(Me.receiptURL)               +  _
             "&TPS_DEF="             + encodeURL(Me.bp10emuTpsDef)            +  _
+            "&TPS_HASH_TYPE="       + encodeURL(Me.tpsHashType)              +  _
             "&CARD_TYPES="          + encodeURL(Me.cardTypes)
         End Function
 
         Public Function process() As String
             Dim postData As String = "MODE=" + HttpUtility.UrlEncode(Me.mode)
+            postData = postData + "&RESPONSEVERSION=5"
             'If (Me.transType <> "SET" And Me.transType <> "GET") Then
             If (Me.API = "bp10emu") Then
                 calcTPS()
@@ -891,6 +1093,7 @@ Namespace BPVB
                 "&COMMENT=" + HttpUtility.UrlEncode(Me.memo) + _
                 "&PHONE=" + HttpUtility.UrlEncode(Me.phone) + _
                 "&EMAIL=" + HttpUtility.UrlEncode(Me.email) + _
+                "&COMPANY_NAME=" + HttpUtility.UrlEncode(Me.companyName) + _
                 "&REBILLING=" + HttpUtility.UrlEncode(Me.doRebill) + _
                 "&REB_FIRST_DATE=" + HttpUtility.UrlEncode(Me.rebillFirstDate) + _
                 "&REB_EXPR=" + HttpUtility.UrlEncode(Me.rebillExpr) + _
@@ -906,7 +1109,7 @@ Namespace BPVB
                 "&AMOUNT_MISC=" + HttpUtility.UrlEncode(Me.amountMisc) + _
                 "&CUSTOM_ID=" + HttpUtility.UrlEncode(Me.customID1) + _
                 "&CUSTOM_ID2=" + HttpUtility.UrlEncode(Me.customID2) + _
-                "&TPS_HASH_TYPE=" + HttpUtility.UrlEncode("SHA512")
+                "&TPS_HASH_TYPE=" + HttpUtility.UrlEncode(Me.tpsHashType)
                 If (Me.swipeData <> "") Then
                     Dim matchTrack1And2 As Match = track1And2.Match(Me.swipeData)
                     Dim matchTrack2 As Match = track2Only.Match(Me.swipeData)
@@ -938,7 +1141,8 @@ Namespace BPVB
                 "&REB_CYCLES=" + HttpUtility.UrlEncode(Me.rebillCycles) + _
                 "&REB_AMOUNT=" + HttpUtility.UrlEncode(Me.rebillAmount) + _
                 "&NEXT_AMOUNT=" + HttpUtility.UrlEncode(Me.rebillNextAmount) + _
-                "&STATUS=" + HttpUtility.UrlEncode(Me.rebillStatus)
+                "&STATUS=" + HttpUtility.UrlEncode(Me.rebillStatus) + _
+                "&TPS_HASH_TYPE=" + HttpUtility.UrlEncode(Me.tpsHashType)
             ElseIf (Me.api="stq")
                 calcReportTPS()
                 Me.URL = "https://secure.bluepay.com/interfaces/stq"
@@ -949,7 +1153,8 @@ Namespace BPVB
                 "&id=" + HttpUtility.UrlEncode(Me.id) + _
                 "&EXCLUDE_ERRORS=" + HttpUtility.UrlEncode(Me.excludeErrors) + _
                 "&QUERY_BY_HIERARCHY=" + HttpUtility.UrlEncode(Me.queryByHierarchy) + _
-                "&DO_NOT_ESCAPE=" + HttpUtility.UrlEncode(Me.doNotEscape)
+                "&DO_NOT_ESCAPE=" + HttpUtility.UrlEncode(Me.doNotEscape) + _
+                "&TPS_HASH_TYPE=" + HttpUtility.UrlEncode(Me.tpsHashType)
             ElseIf (Me.api="bpdailyreport2")
                 calcReportTPS()
                 Me.URL = "https://secure.bluepay.com/interfaces/bpdailyreport2"
@@ -960,13 +1165,33 @@ Namespace BPVB
                 "&REPORT_END_DATE=" + HttpUtility.UrlEncode(Me.reportEndDate) + _
                 "&QUERY_BY_HIERARCHY=" + HttpUtility.UrlEncode(Me.queryByHierarchy) + _
                 "&DO_NOT_ESCAPE=" + HttpUtility.UrlEncode(Me.doNotEscape) + _
-                "&EXCLUDE_ERRORS=" + HttpUtility.UrlEncode(Me.excludeErrors)
+                "&EXCLUDE_ERRORS=" + HttpUtility.UrlEncode(Me.excludeErrors) + _
+                "&TPS_HASH_TYPE=" + HttpUtility.UrlEncode(Me.tpsHashType)
             End If
-                ' Create HTTPS POST object and send to BluePay
+
+            ' Add Level 2 data, if available
+            For Each field As KeyValuePair(Of String, String) in me.level2Info
+                postData = postData & "&" & field.Key & "=" & field.Value
+            Next
+
+            ' Add Level 3 item data, if available
+            For Each item As Dictionary (Of String, String) in me.lineItems
+                For Each field As KeyValuePair(Of String, String) in item
+                    postData = postData & "&" & field.Key & "=" & field.Value
+                Next
+            Next
+
+            'Add customer token data, if available
+            If (Me.custToken <> "") Then postData = postData & "&CUST_TOKEN=" & Me.custToken
+
+            If (Me.newCustToken <> "") Then postData = postData & "&NEW_CUST_TOKEN=" & Me.newCustToken
+
+            ' Create HTTPS POST object and send to BluePay
                 Dim httpRequest As HttpWebRequest = HttpWebRequest.Create(Me.URL)
                 httpRequest.Method = "POST"
                 httpRequest.AllowAutoRedirect = False
                 Dim byteArray As Byte() = Text.Encoding.UTF8.GetBytes(postData)
+                httpRequest.UserAgent= "BluePay Visual Basic Library/" + RELEASE_VERSION    
                 httpRequest.ContentType = "application/x-www-form-urlencoded"
                 httpRequest.ContentLength = byteArray.Length
                 Dim dataStream As Stream = httpRequest.GetRequestStream()
@@ -994,14 +1219,19 @@ Namespace BPVB
             Dim httpResponse As WebResponse = request.Response()
             responseParams(httpResponse)
         End Sub
-
-
+        
         Public Function responseParams(ByVal httpResponse As WebResponse) As String
-            Dim dataStream As Stream = httpResponse.GetResponseStream()
-            Dim reader As New StreamReader(dataStream)
-            Dim responseFromServer As String = reader.ReadToEnd()
-            Me.response = HttpUtility.UrlDecode(responseFromServer)
-            reader.Close()
+            Dim responseFromServer As String = ""
+            If (Me.api="bp10emu") Then
+                responseFromServer = httpResponse.Headers.Item("Location")
+                Me.response = responseFromServer
+            Else
+                Dim dataStream As Stream = httpResponse.GetResponseStream()
+                Dim reader As New StreamReader(dataStream)
+                responseFromServer = reader.ReadToEnd()
+                Me.response = HttpUtility.UrlDecode(responseFromServer)
+                reader.Close()
+            End If
             Return responseFromServer
         End Function
         
@@ -1253,8 +1483,19 @@ Namespace BPVB
             End If
         End Function
 
+        ''' <summary>
+        ''' Returns cust_token from response
+        ''' </summary>
+        '''
+        Public Function getCustomerToken() As String
+            Dim r As Regex = New Regex("CUST_TOKEN=([^&$]+)")
+            Dim m As Match = r.Match(Me.response)
+            If m.Success Then
+                Return m.Value.Substring(11)
+            Else
+                Return ""
+            End If
+        End Function
 
     End Class
 End Namespace
-
-

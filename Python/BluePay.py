@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-import urllib
-from urllib2 import Request, urlopen, URLError, HTTPError
-import urlparse
+import sys
+import six
+import random
+from six.moves import urllib
+from six.moves.urllib.request import Request, urlopen
+from six.moves.urllib.error import URLError, HTTPError
+from six.moves.urllib.parse import urlparse, urlencode, parse_qs
 import hashlib
+import hmac
 import cgi
 import os
 import re
@@ -11,6 +16,7 @@ import sys # PG: added this
 
 class BluePay:
 
+    RELEASE_VERSION = '3.0.2'
     # Sets all the attributes to default to empty strings if not defined
     
     # Merchant fields
@@ -42,6 +48,7 @@ class BluePay:
     country = ''
     phone = ''
     email = ''
+    company_name = ''
 
     # Optional fields
     memo = ''
@@ -53,6 +60,8 @@ class BluePay:
     amount_tip = ''
     amount_food = ''
     amount_misc = ''
+    new_cust_token = ''
+    cust_token = ''
 
     # Rebilling fields
     do_rebill = ''
@@ -94,6 +103,13 @@ class BluePay:
     # Processing fields
     url = ''
     api = ''
+    tps_hash_type = 'HMAC_SHA512'
+
+    # Level 2 Processing field
+    level2_info = {}
+
+    # Level 3 Processing field
+    line_items = []
 
     # Class constructor. Accepts:
     # accID : Merchant's Account ID
@@ -103,8 +119,6 @@ class BluePay:
         self.account_id = params['account_id']
         self.secret_key = params['secret_key']
         self.mode = params['mode']
-
-
 
     # Performs a SALE
     def sale(self, **params):
@@ -118,6 +132,8 @@ class BluePay:
         # self.rrno = params['rrno']
         if 'transaction_id' in params:
             self.rrno = params['transaction_id']
+        if 'customer_token' in params:
+            self.cust_token = params['customer_token']
  
     # Performs an AUTH
     def auth(self, **params):
@@ -127,8 +143,12 @@ class BluePay:
         self.trans_type = 'AUTH'
         self.amount = params['amount']
         self.api = 'bp10emu'
+        if 'new_customer_token' in params and params['new_customer_token'] is not False:
+            self.new_cust_token = '%016x' % random.randrange(16**16) if params['new_customer_token'] == True else params['new_customer_token']
         if 'rrno' in params:
             self.rrno = params['rrno']
+        if 'customer_token' in params:
+            self.cust_token = params['customer_token']
     
     # Performs a CAPTURE
     def capture(self, **params):
@@ -152,6 +172,17 @@ class BluePay:
         if 'amount' in params:
             self.amount = params['amount']
 
+    # Performs an UPDATE
+    def update(self, **params):
+        """ 
+        Send an Update request to the BluePay gateway.
+        """
+        self.api = 'bp10emu'
+        self.trans_type = 'UPDATE'
+        self.rrno = params['transaction_id']
+        if 'amount' in params:
+            self.amount = params['amount']
+
     # Performs a VOID
     def void(self, rrno):
         """ 
@@ -169,15 +200,20 @@ class BluePay:
         self.city = params['city']
         self.state = params['state']
         self.zipcode = params['zipcode']
-        self.addr2 = params['addr2']
+        if 'addr2' in params:
+           self.addr2 = params['addr2']
         self.country = params['country']
+        if 'phone' in params:
+            self.phone = params['phone']
+        if 'email' in params:
+            self.email = params['email']
+        if 'company_name' in params:
+            self.company_name = params['company_name']
         
     # Sets payment type. Needed if using ACH tokens
     def set_payment_type(self, pay_type):
         self.payment_type = pay_type
 
-
-        
     # Passes credit card information into the transaction
     def set_cc_information(self, **params):
         self.payment_type = 'CREDIT'
@@ -195,12 +231,82 @@ class BluePay:
     # Passes ACH information into the transaction
     def set_ach_information(self, **params):
         self.payment_type = 'ACH'
-        self.routing_number = params['routing_number']
-        self.account_number = params['account_number']
-        self.account_type = params['account_type']
-        self.doc_type = params['doc_type']
+        if 'routing_number' in params:    
+            self.routing_number = params['routing_number']
+        if 'account_number' in params:    
+            self.account_number = params['account_number']
+        if 'account_type' in params:    
+            self.account_type = params['account_type']
+        if 'doc_type' in params:    
+            self.doc_type = params['doc_type']
          
-       
+    # Adds information required for level 2 processing.
+    def add_level2_information(self, **params):
+        self.level2_info.update({
+            'LV2_ITEM_TAX_RATE' : params.get('tax_rate', ''),
+            'LV2_ITEM_GOODS_TAX_RATE' : params.get('goods_tax_rate', ''),
+            'LV2_ITEM_GOODS_TAX_AMOUNT' : params.get('goods_tax_amount', ''),
+            'LV2_ITEM_SHIPPING_AMOUNT' : params.get('shipping_amount', ''),
+            'LV2_ITEM_DISCOUNT_AMOUNT' : params.get('discount_amount', ''),
+            'LV2_ITEM_CUST_PO' : params.get('cust_po', ''),
+            'LV2_ITEM_GOODS_TAX_ID' : params.get('goods_tax_id', ''),
+            'LV2_ITEM_TAX_ID' : params.get('tax_id', ''),
+            'LV2_ITEM_CUSTOMER_TAX_ID' : params.get('customer_tax_id', ''),
+            'LV2_ITEM_DUTY_AMOUNT' : params.get('duty_amount', ''),
+            'LV2_ITEM_SUPPLEMENTAL_DATA' : params.get('supplemental_data', ''),
+            'LV2_ITEM_CITY_TAX_RATE' : params.get('city_tax_rate', ''),
+            'LV2_ITEM_CITY_TAX_AMOUNT' : params.get('city_tax_amount', ''),
+            'LV2_ITEM_COUNTY_TAX_RATE' : params.get('county_tax_rate', ''),
+            'LV2_ITEM_COUNTY_TAX_AMOUNT' : params.get('county_tax_amount', ''),
+            'LV2_ITEM_STATE_TAX_RATE' : params.get('state_tax_rate', ''),
+            'LV2_ITEM_STATE_TAX_AMOUNT' : params.get('state_tax_amount', ''),
+            'LV2_ITEM_BUYER_NAME' : params.get('buyer_name', ''),
+            'LV2_ITEM_CUSTOMER_REFERENCE' : params.get('customer_reference', ''),
+            'LV2_ITEM_CUSTOMER_NUMBER' : params.get('customer_number', ''),
+            'LV2_ITEM_SHIP_NAME' : params.get('ship_name', ''),
+            'LV2_ITEM_SHIP_ADDR1' : params.get('ship_addr1', ''),
+            'LV2_ITEM_SHIP_ADDR2' : params.get('ship_addr2', ''),
+            'LV2_ITEM_SHIP_CITY' : params.get('ship_city', ''),
+            'LV2_ITEM_SHIP_STATE' : params.get('ship_state', ''),
+            'LV2_ITEM_SHIP_ZIP' : params.get('ship_zip', ''),
+            'LV2_ITEM_SHIP_COUNTRY' : params.get('ship_country', '')
+        })
+
+    # Adds a line item for level 3 processing. Repeat method for each item up to 99 items.
+    # For Canadian and AMEX processors, ensure required Level 2 information is present.
+    def add_line_item(self, **params):
+        i = len(self.line_items) + 1
+        prefix = 'LV3_ITEM' + str(i) + '_'
+        self.line_items.append(                                                         #  VALUE REQUIRED IN:
+            {                                                                           #  USA | CANADA
+                prefix + 'UNIT_COST' : params.get('unit_cost'),                         #   *      *
+                prefix + 'QUANTITY' : params.get('quantity'),                           #   *      *
+                prefix + 'ITEM_SKU' : params.get('item_sku', ''),                       #          *
+                prefix + 'ITEM_DESCRIPTOR' : params.get('descriptor', ''),              #   *      *       
+                prefix + 'COMMODITY_CODE' : params.get('commodity_code', ''),           #   *      *    
+                prefix + 'PRODUCT_CODE' : params.get('product_code', ''),               #   * 
+                prefix + 'MEASURE_UNITS' : params.get('measure_units', ''),             #   *      *
+                prefix + 'ITEM_DISCOUNT' : params.get('item_discount', ''),             #          *
+                prefix + 'TAX_RATE' : params.get('tax_rate', ''),                       #   * 
+                prefix + 'GOODS_TAX_RATE' : params.get('goods_tax_rate', ''),           #          *
+                prefix + 'TAX_AMOUNT' : params.get('tax_amount', ''),                   #   *
+                prefix + 'GOODS_TAX_AMOUNT' : params.get('goods_tax_amount', ''),       #   *     
+                prefix + 'CITY_TAX_RATE' : params.get('city_tax_rate', ''),             #
+                prefix + 'CITY_TAX_AMOUNT' : params.get('city_tax_amount', ''),         #    
+                prefix + 'COUNTY_TAX_RATE' : params.get('county_tax_rate', ''),         #
+                prefix + 'COUNTY_TAX_AMOUNT' : params.get('county_tax_amount', ''),     #    
+                prefix + 'STATE_TAX_RATE' : params.get('state_tax_rate', ''),           #
+                prefix + 'STATE_TAX_AMOUNT' : params.get('state_tax_amount', ''),       #    
+                prefix + 'CUST_SKU' : params.get('cust_sku', ''),                       #
+                prefix + 'CUST_PO' : params.get('cust_po', ''),                         #
+                prefix + 'SUPPLEMENTAL_DATA' : params.get('supplemental_data', ''),     #    
+                prefix + 'GL_ACCOUNT_NUMBER' : params.get('gl_account_number', ''),     #    
+                prefix + 'DIVISION_NUMBER' : params.get('division_number', ''),         #
+                prefix + 'PO_LINE_NUMBER' : params.get('po_line_number', ''),           #
+                prefix + 'LINE_ITEM_TOTAL' : params.get('line_item_total', '')          #   * 
+            }
+        )
+
     # Passes rebilling information into the transaction
     def set_rebilling_information(self, **params):
         self.do_rebill = '1'
@@ -312,32 +418,49 @@ class BluePay:
     ### API REQUEST ###
 
     # Functions for calculating the TAMPER_PROOF_SEAL
+    def create_tps_hash(self, string, hash_type):
+        try:
+            self.secret_key
+        except AttributeError:
+            return "SECRET KEY NOT PROVIDED"
+
+        tps_hash = ""
+        if hash_type == "HMAC_SHA256":
+            tps_hash = hmac.new(self.secret_key, string, hashlib.sha256).hexdigest()
+        elif hash_type == "SHA512":
+            m = hashlib.sha512()
+            m.update(self.secret_key + string)
+            tps_hash = m.hexdigest()
+        elif hash_type == "SHA256":
+            m = hashlib.sha256()
+            m.update(self.secret_key + string)
+            tps_hash = m.hexdigest()
+        elif hash_type == "MD5":
+            m = hashlib.md5()
+            m.update(self.secret_key + string)
+            tps_hash = m.hexdigest()
+        else:
+            tps_hash = hmac.new(self.secret_key, string, hashlib.sha512).hexdigest()
+
+        return tps_hash
+
+
     def calc_TPS(self):
-        tps_string = (self.secret_key + self.account_id + self.trans_type + self.amount +
-                      self.do_rebill + self.reb_first_date + self.reb_expr + self.reb_cycles + 
-                      self.reb_amount + self.rrno + self.mode)
-        m = hashlib.sha512()
-        m.update(tps_string)
-        return m.hexdigest()
+        tps_string = (self.account_id + self.trans_type + self.amount + self.do_rebill + 
+                        self.reb_first_date + self.reb_expr + self.reb_cycles + self.reb_amount + 
+                        self.rrno + self.mode)
+        tps = self.create_tps_hash(tps_string, self.tps_hash_type)
+        return tps
 
     def calc_rebill_TPS(self):
-        tps_string = (self.secret_key + self.account_id + self.trans_type + self.rebill_id)
-        m = hashlib.md5()
-        m.update(tps_string)
-        return m.hexdigest()   
+        tps_string = (self.account_id + self.trans_type + self.rebill_id)
+        tps = self.create_tps_hash(tps_string, self.tps_hash_type)
+        return tps 
         
     def calc_report_TPS(self):
-        tps_string = (self.secret_key + self.account_id + self.report_start_date + self.report_end_date)
-        m = hashlib.md5()
-        m.update(tps_string)
-        return m.hexdigest()
-        
-    def calc_trans_notify_TPS(self):
-        tps_string = (secret_key, trans_id, trans_status, trans_type, amount, batch_id, batch_status,
-                      total_count, total_amount, batch_upload_id, rebill_id, rebill_amount, rebill_status)
-        m = hashlib.md5()
-        m.update(tps_string)
-        return m.hexdigest()
+        tps_string = (self.account_id + self.report_start_date + self.report_end_date)
+        tps = self.create_tps_hash(tps_string, self.tps_hash_type)
+        return tps
 
     # Required arguments for generate_url:
     # merchant_name: Merchant name that will be displayed in the payment page.
@@ -423,19 +546,28 @@ class BluePay:
         else:
             self.receipt_form_id = "mobileresult01"
         if 'receipt_temp_remote_url' in params:
-            self.remote_url = params['receipt_temp_remote_url'] 
+            self.remote_url = params['receipt_temp_remote_url']
+        self.shpf_tps_hash_type = 'HMAC_SHA512'
+        self.receipt_tps_hash_type = self.shpf_tps_hash_type
+        self.tps_hash_type = self.set_hash_type(params.get('tps_hash_type', ''))
         self.card_types = self.set_card_types()
-        self.receipt_tps_def = 'SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF'
+        self.receipt_tps_def = 'SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE'
         self.receipt_tps_string = self.set_receipt_tps_string()
-        self.receipt_tamper_proof_seal = self.calc_url_tps(self.receipt_tps_string)
+        self.receipt_tamper_proof_seal = self.create_tps_hash(self.receipt_tps_string, self.receipt_tps_hash_type)
         self.receipt_url = self.set_receipt_url()
-        self.bp10emu_tps_def = self.add_def_protected_status('MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF')
+        self.bp10emu_tps_def = self.add_def_protected_status('MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF TPS_HASH_TYPE')
         self.bp10emu_tps_string = self.set_bp10emu_tps_string()
-        self.bp10emu_tamper_proof_seal = self.calc_url_tps(self.bp10emu_tps_string)
-        self.shpf_tps_def = self.add_def_protected_status('SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF SHPF_TPS_DEF')
+        self.bp10emu_tamper_proof_seal = self.create_tps_hash(self.bp10emu_tps_string, self.tps_hash_type)
+        self.shpf_tps_def = self.add_def_protected_status('SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF TPS_HASH_TYPE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE')
         self.shpf_tps_string = self.set_shpf_tps_string()
-        self.shpf_tamper_proof_seal = self.calc_url_tps(self.shpf_tps_string)
+        self.shpf_tamper_proof_seal = self.create_tps_hash(self.shpf_tps_string, self.shpf_tps_hash_type)
         return self.calc_url_response()
+
+    # Validates hash type or uses default
+    def set_hash_type(self, chosen_hash):
+        default_hash = 'HMAC_SHA512'
+        result = chosen_hash.upper() if chosen_hash.upper() in ['MD5', 'SHA256', 'SHA512', 'HMAC_SHA256'] else default_hash
+        return result
 
     # Sets the types of credit card images to use on the Simple Hosted Payment Form. Must be used with generate_url.
     def set_card_types(self):
@@ -448,38 +580,39 @@ class BluePay:
 
     # Sets the receipt Tamperproof Seal string. Must be used with generate_url.
     def set_receipt_tps_string(self):
-        return ''.join(self.secret_key +
-            self.account_id +
+        return ''.join(self.account_id +
             self.receipt_form_id +
             self.return_url +
             self.dba +
             self.accept_amex +
             self.accept_discover +
-            self.receipt_tps_def)
+            self.receipt_tps_def + 
+            self.receipt_tps_hash_type)
 
     # Sets the bp10emu string that will be used to create a Tamperproof Seal. Must be used with generate_url.
     def set_bp10emu_tps_string(self):
-        bp10emu = ''.join(self.secret_key +
-            self.account_id + 
+        bp10emu = ''.join(self.account_id + 
             self.receipt_url + 
             self.receipt_url +
             self.receipt_url +
             self.mode +
             self.trans_type +
-            self.bp10emu_tps_def)
+            self.bp10emu_tps_def + 
+            self.tps_hash_type)
         return self.add_string_protected_status(bp10emu)
 
     # Sets the Simple Hosted Payment Form string that will be used to create a Tamperproof Seal. Must be used with generate_url.
     def set_shpf_tps_string(self):
-        shpf = ''.join(self.secret_key +
-            self.shpf_form_id +
+        shpf = ''.join(self.shpf_form_id +
             self.account_id + 
             self.dba + 
             self.bp10emu_tamper_proof_seal +
             self.accept_amex +
             self.accept_discover +
             self.bp10emu_tps_def +
-            self.shpf_tps_def)
+            self.tps_hash_type +
+            self.shpf_tps_def + 
+            self.shpf_tps_hash_type)
         return self.add_string_protected_status(shpf)
 
     # Sets the receipt url or uses the remote url provided. Must be used with generate_url.
@@ -491,6 +624,7 @@ class BluePay:
             'SHPF_FORM_ID=' + self.receipt_form_id + 
             '&SHPF_ACCOUNT_ID=' + self.account_id + 
             '&SHPF_TPS_DEF=' + self.url_encode(self.receipt_tps_def) + 
+            '&SHPF_TPS_HASH_TYPE=' + self.url_encode(self.receipt_tps_hash_type) +
             '&SHPF_TPS=' + self.url_encode(self.receipt_tamper_proof_seal) + 
             '&RETURN_URL=' + self.url_encode(self.return_url) + 
             '&DBA=' + self.url_encode(self.dba) + 
@@ -530,18 +664,13 @@ class BluePay:
             encoded_string += char
         return encoded_string
     
-    # Generates a Tamperproof Seal for a url. Must be used with generate_url.
-    def calc_url_tps(self, tps_type):
-        m = hashlib.md5()
-        m.update(tps_type)
-        return m.hexdigest()
-
     # Generates the final url for the Simple Hosted Payment Form. Must be used with generate_url.
     def calc_url_response(self):
         return ''.join('https://secure.bluepay.com/interfaces/shpf?' +
             'SHPF_FORM_ID='       + self.url_encode(self.shpf_form_id) +
             '&SHPF_ACCOUNT_ID='   + self.url_encode(self.account_id) +
             '&SHPF_TPS_DEF='      + self.url_encode(self.shpf_tps_def) +
+            '&SHPF_TPS_HASH_TYPE='+ self.url_encode(self.shpf_tps_hash_type) +
             '&SHPF_TPS='          + self.url_encode(self.shpf_tamper_proof_seal) +
             '&MODE='              + self.url_encode(self.mode) +
             '&TRANSACTION_TYPE='  + self.url_encode(self.trans_type) +
@@ -558,15 +687,28 @@ class BluePay:
             '&AMEX_IMAGE='        + self.url_encode(self.accept_amex) +
             '&DISCOVER_IMAGE='    + self.url_encode(self.accept_discover) +
             '&REDIRECT_URL='      + self.url_encode(self.receipt_url) +
-            '&TPS_DEF='           + self.url_encode(self.bp10emu_tps_def)+
+            '&TPS_DEF='           + self.url_encode(self.bp10emu_tps_def) +
+            '&TPS_HASH_TYPE='     + self.url_encode(self.tps_hash_type) +
             '&CARD_TYPES='        + self.url_encode(self.card_types))
 
     ### PROCESSES THE API REQUEST ####
     def process(self, card=None, customer=None, order=None):
         fields = {
             'MODE': self.mode,
-            'RRNO': self.rrno
+            'RRNO': self.rrno,
+            'RESPONSEVERSION': '5' # Response version to be returned   
         }
+
+        if self.new_cust_token != '':
+            fields.update({
+                'NEW_CUST_TOKEN' : self.new_cust_token
+            })
+
+        if self.cust_token != '':
+            fields.update({
+                'CUST_TOKEN' : self.cust_token
+            })
+
         if self.api == 'bpdailyreport2':
             self.url = 'https://secure.bluepay.com/interfaces/bpdailyreport2'
             fields.update({
@@ -577,7 +719,8 @@ class BluePay:
                 'DO_NOT_ESCAPE' : self.do_not_escape,
                 'QUERY_BY_SETTLEMENT' : self.query_by_settlement,
                 'QUERY_BY_HIERARCHY' : self.subaccounts_searched,
-                'EXCLUDE_ERRORS' : self.excludeErrors
+                'EXCLUDE_ERRORS' : self.excludeErrors,
+                'TPS_HASH_TYPE': self.tps_hash_type
             })
         elif self.api == 'stq':
             self.url = 'https://secure.bluepay.com/interfaces/stq'
@@ -588,6 +731,7 @@ class BluePay:
                 'TAMPER_PROOF_SEAL' : self.calc_report_TPS(),
                 'EXCLUDE_ERRORS' : self.excludeErrors,
                 'IGNORE_NULL_STR' : '1',
+                'TPS_HASH_TYPE': self.tps_hash_type,
                 'id' : self.trans_id,
                 'payment_type' : self.payment_type,
                 'trans_type' : self.trans_type,
@@ -612,6 +756,7 @@ class BluePay:
                 'ZIPCODE': self.zipcode,
                 'COUNTRY': self.country,
                 'EMAIL': self.email,
+                'COMPANY_NAME': self.company_name,
                 'PHONE': self.phone,
                 'CUSTOM_ID': self.custom_id1,
                 'CUSTOM_ID2': self.custom_id2,
@@ -628,11 +773,11 @@ class BluePay:
                 'REB_CYCLES': self.reb_cycles,
                 'REB_AMOUNT': self.reb_amount,
                 'SWIPE': self.track_data,
-                'TPS_HASH_TYPE': 'SHA512'
+                'TPS_HASH_TYPE': self.tps_hash_type
             })
             try:
                 fields.update({
-                    'REMOTE_IP' : cgi.escape(os.environ["REMOTE_ADDR"])
+                    'CUSTOMER_IP' : cgi.escape(os.environ["REMOTE_ADDR"])
                 })
             except KeyError:
                 pass
@@ -662,15 +807,22 @@ class BluePay:
                 'REB_AMOUNT': self.reb_amount,
                 'NEXT_AMOUNT': self.reb_next_amount,
                 'STATUS': self.reb_status,
-                'TAMPER_PROOF_SEAL': self.calc_rebill_TPS()
+                'TAMPER_PROOF_SEAL': self.calc_rebill_TPS(),
+                'TPS_HASH_TYPE': self.tps_hash_type
             })
-        response = self.request(self.url, self.create_post_string(fields))
+
+        fields.update(self.level2_info) # Update fields dictionary with Level 2 processing information, if available.
+            
+        for item in self.line_items: # Update fields dictionary with line item information, if available.
+            fields.update(item)
+
+        response = self.request(self.url, self.create_post_string(fields).encode())
         parsed_response = self.parse_response(response)
         return parsed_response
 
     def create_post_string(self, fields):
-        fields = dict([k,str(v).replace(',', '')] for (k,v) in fields.iteritems())       
-        return urllib.urlencode(fields)
+        fields = dict([k,str(v).replace(',', '')] for (k,v) in six.iteritems(fields))
+        return urlencode(fields)
     
     def request(self, url, data):
         """
@@ -684,11 +836,16 @@ class BluePay:
         Send an https request.
         """
         try:
-            r = urlopen(self.url, data)
-            #response = r.read()
-	    response = r.geturl()
+            headers = {
+                'User-Agent': 'BluepPay Python Library/' + self.RELEASE_VERSION,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            req = Request(self.url, data, headers=headers)
+            r = urlopen(req)
+            response = ""
+            response = r.geturl() if self.api == 'bp10emu' else r.read()  
             return response
-        except HTTPError, e:
+        except HTTPError as e:
             if re.match("https://secure.bluepay.com/interfaces/wlcatch", e.geturl()):
                 response = e.geturl()
                 return response
@@ -699,12 +856,12 @@ class BluePay:
         if self.api == 'bpdailyreport2':
             self.response = response
         elif self.api == 'bp10emu':        
-            query_string = urlparse.urlparse(response)
-            response = urlparse.parse_qs(query_string.query)
+            query_string = urlparse(response)
+            response = parse_qs(query_string.query)
             self.response = response
             self.assign_response_values()
         elif self.api == 'stq' or self.api == 'bp20rebadmin':
-            response = cgi.parse_qs(response)
+            response = parse_qs(response)
             self.response = response
             self.assign_response_values()
 
@@ -750,7 +907,7 @@ class BluePay:
         # Template ID of rebilling
         self.get_template_id = self.response['template_id'][0] if 'template_id' in self.response else ''
         # Status of rebilling
-        self.rebill_status_response = self.response['status'][0] if 'status' in self.response else ''
+        self.rebill_status_response = self.response['STATUS'][0] if 'STATUS' in self.response else ''
         # Creation date of rebilling
         self.creation_date_response = self.response['creation_date'][0] if 'creation_date' in self.response else ''
         # Next date that the rebilling is set to fire off on
@@ -766,19 +923,25 @@ class BluePay:
         # Next amount to charge when rebilling fires off
         self.next_amount_response = self.response['next_amount'][0] if 'next_amount' in self.response else ''
         # Transaction ID used with stq API
-        self.id_response = self.response['id'][0] if 'id' in self.response else ''
+        self.id_response = self.response['ID'][0] if 'ID' in self.response else ''
         # First name associated with the transaction
-        self.name1_response = self.response['name1'][0] if 'name1' in self.response else ''
+        self.name1_response = self.response['NAME1'][0] if 'NAME1' in self.response else ''
         # Last name associated with the transaction
-        self.name2_response = self.response['name2'][0] if 'name2' in self.response else ''
+        self.name2_response = self.response['NAME2'][0] if 'NAME2' in self.response else ''
         # Payment type associated with the transaction
-        self.payment_type_response = self.response['payment_type'][0] if 'payment_type' in self.response else ''
+        self.payment_type_response = self.response['PAYMENT_TYPE'][0] if 'PAYMENT_TYPE' in self.response else ''
         # Transaction type associated with the transaction
-        self.trans_type_response = self.response['trans_type'][0] if 'trans_type' in self.response else ''
+        self.trans_type_response = self.response['TRANS_TYPE'][0] if 'TRANS_TYPE' in self.response else ''
         # Amount associated with the transaction
-        self.amount_response = self.response['amount'][0] if 'amount' in self.response else ''
-
-    
+        self.amount_response = self.response['AMOUNT'][0] if 'AMOUNT' in self.response else ''
+        # Returns the BP_STAMP used to authenticate response
+        self.bp_stamp_response = self.response['BP_STAMP'][0] if 'BP_STAMP' in self.response else ''
+        # Returns the fields used to calculate the BP_STAMP
+        self.bp_stamp_def_response = self.response['BP_STAMP_DEF'][0] if 'BP_STAMP_DEF' in self.response else ''
+        # Returns hash function used for transaction
+        self.tps_hash_type_response = self.response['TPS_HASH_TYPE'][0] if 'TPS_HASH_TYPE' in self.response else ''
+        # Returns customer token used or established by transaction
+        self.cust_token_response = self.response['CUST_TOKEN'][0] if 'CUST_TOKEN' in self.response else ''
 
 
  

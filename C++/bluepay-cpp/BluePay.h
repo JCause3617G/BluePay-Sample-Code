@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <map>
 #include <sstream>
 #include <iterator>
 //#include <Windows.h> 
@@ -11,7 +12,9 @@
 #include <stdio.h>
 //#include <tchar.h>
 
-#include "Sha512.h"
+#include "hmac.h"
+#include "sha512.h"
+#include "sha256.h"
 #include "md5.h"
 #include <curl/curl.h>
 #define ToHex(Y) (Y>='0'&&Y<='9'?Y-'0':Y-'A'+10)
@@ -19,11 +22,14 @@
 
 class BluePay {
 private:
+  const char* RELEASE_VERSION = "3.0.2";
   // required for every transaction
   std::string accountId;
   std::string URL;
   std::string secretKey;
   std::string mode;
+
+  std::string tpsHashType = "HMAC_SHA512";
 
   // required for auth or sale
   std::string paymentAccount;
@@ -44,8 +50,11 @@ private:
   std::string addr2;
   std::string phone;
   std::string email;
+  std::string companyName;
   std::string country;
-
+  std::string newCustToken;
+  std::string custToken;
+    
   // transaction variables
   std::string amount;
   std::string transType;
@@ -76,7 +85,11 @@ private:
   std::string amountFood;
   std::string amountMisc;
   std::string memo;
-
+  std::map<std::string, std::string> level2Info;
+    
+  // level3 fields
+  std::vector<std::map<std::string, std::string>> lineItems;
+    
   // rebill fields
   std::string reportStartDate;
   std::string reportEndDate;
@@ -97,6 +110,8 @@ private:
   std::string shpfFormID;
   std::string receiptFormID;
   std::string remoteURL;
+  std::string shpfTpsHashType;
+  std::string receiptTpsHashType;
   std::string cardTypes;
   std::string receiptTpsDef;
   std::string receiptTpsString;
@@ -113,6 +128,7 @@ private:
 
   char *queryResponse;
   std::string response;
+  std::map<std::string, std::string> responseFields;
   char result[128];
   char message[128];
   char transId[16];
@@ -143,16 +159,16 @@ public:
   BluePay(std::string, std::string, std::string);
 
   void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string city, std::string state, std::string zip);
-  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, std::string state,
-    std::string zip);
-  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, std::string state,
-    std::string zip, std::string country);
-  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, 
-    std::string state, std::string zip, std::string country, std::string phone, std::string email);
+  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, std::string state, std::string zip);
+  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, std::string state, std::string zip, std::string country);
+  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, std::string state, std::string zip, std::string country, std::string phone, std::string email);
+  void setCustomerInformation(std::string name1, std::string name2, std::string addr1, std::string addr2, std::string city, std::string state, std::string zip, std::string country, std::string phone, std::string email, std::string companyName);
   void setCCInformation(std::string cardNum, std::string cardExpire);
   void setCCInformation(std::string cardNum, std::string cardExpire, std::string cvv2);
   void setACHInformation(std::string routingNum, std::string accountNum, std::string accountType);
   void setACHInformation(std::string routingNum, std::string accountNum, std::string accountType, std::string docType);
+  void addLevel2Information(std::map<std::string, std::string> params);
+  void addLineItem(std::map<std::string, std::string> params);
   void setRebillingInformation(std::string rebAmount, std::string rebFirstDate, std::string rebExpr, std::string rebCycles);
   void updateRebillingInformation(std::string rebillID, std::string rebNextDate, std::string rebExpr, std::string rebCycles,
     std::string rebAmount, std::string rebNextAmount);
@@ -179,10 +195,14 @@ public:
   void queryByName2(std::string name2);
   void sale(std::string amount);
   void sale(std::string amount, std::string masterId);
+  void sale(std::map<std::string, std::string> params);
   void auth(std::string amount);
   void auth(std::string amount, std::string masterId);
+  void auth(std::map<std::string, std::string> params);
   void refund(std::string masterID);
   void refund(std::string masterID, std::string amount);
+  void update(std::string masterID);
+  void update(std::string masterID, std::string amount);
   void voidTransaction(std::string masterID);
   void capture(std::string masterID);
   void capture(std::string masterID, std::string amount);
@@ -199,29 +219,34 @@ public:
   void setMemo(std::string memo);
   void setPhone(std::string phone);
   void setEmail(std::string email);
+  void setCompanyName(std::string companyName);
 
+  std::string generateTps(std::string message, std::string hashType);
   void calcTps();
   void calcRebillTps();
   void calcReportTps();
-  static std::string calcTransNotifyTps(std::string secretKey, std::string transId, std::string transStatus, std::string transType,
-    std::string amount, std::string batchId, std::string batchStatus, std::string totalCount, std::string totalAmount,
-    std::string batchUploadId, std::string rebillId, std::string rebillAmount, std::string rebillStatus);
 
   std::string setCardTypes();
   std::string setReceiptTpsString();
   std::string calcURLTps(std::string);
   std::string setReceiptURL();
   std::string encodeURL(std::string);
+  std::string urlDecode(std::string);
   std::string addStringProtectedStatus(std::string);
   std::string addDefProtectedStatus(std::string);
   std::string setBp10emuTpsString();
   std::string setShpfTpsString();
   std::string calcURLResponse(); 
-  std::string generateURL(std::string merchantName, std::string returnURL, std::string transactionType, std::string acceptDiscover, std::string acceptAmex, std::string amount, std::string protectAmount , std::string paymentTemplate = "mobileform01", std::string receiptTemplate = "mobileresult01", std::string receiptTempRemoteURL = "", std::string rebilling = "No", std::string rebProtect = "Yes", std::string rebAmount = "", std::string rebCycles = "", std::string rebStartDate = "", std::string rebFrequency = "", std::string customID1 = "", std::string protectCustomID1 = "No", std::string customID2 = "", std::string protectCustomID2 = "No");
+  std::string generateURL(std::string merchantName, std::string returnURL, std::string transactionType, std::string acceptDiscover, std::string acceptAmex, std::string amount, std::string protectAmount , std::string paymentTemplate = "mobileform01", std::string receiptTemplate = "mobileresult01", std::string receiptTempRemoteURL = "", std::string rebilling = "No", std::string rebProtect = "Yes", std::string rebAmount = "", std::string rebCycles = "", std::string rebStartDate = "", std::string rebFrequency = "", std::string customID1 = "", std::string protectCustomID1 = "No", std::string customID2 = "", std::string protectCustomID2 = "No", std::string tpsHashType = "");
+  std::string setHashType(std::string chosenHash);
+  std::string genRandomString(const int len);
 
   void addHeader(const std::string& s);
   size_t rcvHeaders(void *buffer, size_t size, size_t nmemb, void *userp);
+  std::vector<std::string> split(const std::string &s, char delim);
+  std::vector<std::string> split(const std::string &s, char delim, std::vector<std::string> &elems);
   char* process();
+  std::map<std::string, std::string> mapResponsePairs(std::string responseString);
   std::string getResponse();
   char* getResult();
   char* getTransId();
@@ -241,9 +266,9 @@ public:
   char* getCyclesRemain();
   char* getRebillAmount();
   char* getNextAmount();
+  std::string getCustToken();
 
   bool isSuccessfulTransaction();
 
 
 };
-

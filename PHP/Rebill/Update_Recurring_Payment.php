@@ -37,7 +37,7 @@ $rebill->setCustomerInformation(array(
  
 $rebill->setCCInformation(array(
     'cardNumber' => '4111111111111111', // Card Number: 4111111111111111
-    'cardExpire' => '1215', // Card Expire: 12/15
+    'cardExpire' => '1225', // Card Expire: 12/25
     'cvv2' => '123' // Card CVV2: 123
     )
 );
@@ -49,7 +49,9 @@ $rebill->setRebillingInformation(array(
    'rebillAmount' => '3.50' // Rebill Amount: $3.50
 ));
 
-$rebill->auth('0.00');
+$rebill->auth(array(
+    'amount' => '0.00'
+));
 
 $rebill->process();
 
@@ -64,14 +66,14 @@ if ($rebill->isSuccessfulResponse()) {
 
     // Sets an updated credit card expiration date
     $updateRebillPaymentInformation->setCCInformation(array(
-        'cardExpire' => '0121'
+        'cardExpire' => '1229'
     ));
 
     // Stores new card expiration date
-    $updateRebillPaymentInformation->auth(
-        "0.00", 
-        $rebill->getTransID() // the id of the rebill to update
-    );
+    $updateRebillPaymentInformation->auth(array(
+        'amount' => "0.00", 
+        'masterID' =>$rebill->getTransID() // the id of the rebill to update
+    ));
 
     // Makes the API Request to update the payment information
     $updateRebillPaymentInformation->process();

@@ -16,18 +16,24 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 
 import java.security.MessageDigest;
+import hmac.*;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.Random;
 import java.io.*;
 
 import java.nio.charset.Charset;
 
 public class BluePay
 {
+  public static final String RELEASE_VERSION = "3.0.2";
+
   // required parameters
   private String BP_URL = "";
   private String BP_MERCHANT = "";
@@ -59,6 +65,7 @@ public class BluePay
   private String COUNTRY = "";
   private String PHONE = "";
   private String EMAIL = "";
+  private String COMPANY_NAME = "";
   private String SWIPE = "";
   
   // optional parameters
@@ -67,6 +74,9 @@ public class BluePay
   private String CUSTOM_ID2 = "";
   private String ORDER_ID = "";
   private String INVOICE_ID = "";
+  private String TPS_HASH_TYPE = "HMAC_SHA512";
+  private String NEW_CUST_TOKEN = "";
+  private String CUST_TOKEN = "";
   
   // rebilling parameters
   private String REBILLING = "0";
@@ -100,6 +110,8 @@ public class BluePay
   private String SHPF_FORM_ID = "mobileform01";
   private String RECEIPT_FORM_ID = "mobileresult01";
   private String REMOTE_URL = "";
+  private String SHPF_TPS_HASH_TYPE = "";
+  private String RECEIPT_TPS_HASH_TYPE = "";
   private String CARD_TYPES = "";
   private String RECEIPT_TPS_DEF = "";
   private String RECEIPT_TPS_STRING = "";
@@ -119,6 +131,12 @@ public class BluePay
   
   private HashMap<String, String> response = new HashMap<String, String>();
 
+  // Level 2 processing field
+  private List<NameValuePair> level2Info = new ArrayList<>();
+  
+  // Level 3 processing field
+  private List<List<NameValuePair>> lineItems = new ArrayList<>();
+  
   /**
    * Sole constructor.  Requires merchant credentials.
    *
@@ -151,6 +169,9 @@ public class BluePay
     if (params.containsKey("transactionID")) {
       RRNO = params.get("transactionID");
     }
+    if (params.containsKey("customerToken")) {
+        CUST_TOKEN = params.get("customerToken");
+    }
   }
   
   /**
@@ -169,6 +190,12 @@ public class BluePay
     if (params.containsKey("transactionID")) {
       RRNO = params.get("transactionID");
     }
+    if (params.containsKey("newCustomerToken") && params.get("newCustomerToken").toLowerCase() != "false") {
+        NEW_CUST_TOKEN = params.get("newCustomerToken").toLowerCase().equals("true") ? randomString(16) : params.get("newCustomerToken");
+    }
+    if (params.containsKey("customerToken")) {
+      CUST_TOKEN = params.get("customerToken");
+    }
   }
   
   /**
@@ -186,6 +213,20 @@ public class BluePay
     API = "bp10emu";
   }
   
+  /**
+   * Sets up the object to perform an UPDATE. 
+   *
+   * @param transactionID A string containing the 12-digit transaction ID of the transaction to refund.
+   * @param amount  An optional string containing the amount to refund.
+   * 
+   */
+  public void update(HashMap<String, String> params) {  
+    TRANSACTION_TYPE = "UPDATE";
+    RRNO = params.get("transactionID");
+    AMOUNT = params.get("amount");
+    API = "bp10emu";
+  }
+
   /**
    * Sets up the object to perform a VOID. 
    *
@@ -211,6 +252,21 @@ public class BluePay
     TRANSACTION_TYPE = "CAPTURE";
     AMOUNT = params.get("amount");
     RRNO = params.get("transactionID");
+  }
+
+  /**
+   * Creates a random alphanumeric string.
+   * @param length The length of the desired random alphanumeric string.
+   * 
+   */
+  
+  public String randomString(int length) {
+    Random r = new Random();
+    StringBuffer sb = new StringBuffer();
+    while(sb.length() < length) {
+      sb.append(Integer.toHexString(r.nextInt()));
+    }
+    return sb.toString().substring(0, length);
   }
 
   /**
@@ -286,6 +342,80 @@ public class BluePay
     COUNTRY = params.get("country");
     PHONE = params.get("phone");
     EMAIL = params.get("email");
+    COMPANY_NAME = params.get("companyName");
+  }
+
+  /**
+   * Adds information required for level 2 processing.
+   */
+   public void addLevel2Information(HashMap<String, String> params)
+   {
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_TAX_RATE", Optional.ofNullable(params.get("taxRate")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_GOODS_TAX_RATE", Optional.ofNullable(params.get("goodsTaxRate")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_GOODS_TAX_AMOUNT", Optional.ofNullable(params.get("goodsTaxAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIPPING_AMOUNT", Optional.ofNullable(params.get("shippingAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_DISCOUNT_AMOUNT", Optional.ofNullable(params.get("discountAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_CUST_PO", Optional.ofNullable(params.get("custPO")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_GOODS_TAX_ID", Optional.ofNullable(params.get("goodsTaxID")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_TAX_ID", Optional.ofNullable(params.get("taxID")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_CUSTOMER_TAX_ID", Optional.ofNullable(params.get("customerTaxID")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_DUTY_AMOUNT", Optional.ofNullable(params.get("dutyAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SUPPLEMENTAL_DATA", Optional.ofNullable(params.get("supplementalData")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_CITY_TAX_RATE", Optional.ofNullable(params.get("cityTaxRate")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_CITY_TAX_AMOUNT", Optional.ofNullable(params.get("cityTaxAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_COUNTY_TAX_RATE", Optional.ofNullable(params.get("countyTaxRate")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_COUNTY_TAX_AMOUNT", Optional.ofNullable(params.get("countyTaxAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_STATE_TAX_RATE", Optional.ofNullable(params.get("stateTaxRate")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_STATE_TAX_AMOUNT", Optional.ofNullable(params.get("stateTaxAmount")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_BUYER_NAME", Optional.ofNullable(params.get("buyerName")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_CUSTOMER_REFERENCE", Optional.ofNullable(params.get("customerReference")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_CUSTOMER_NUMBER", Optional.ofNullable(params.get("customerNumber")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_NAME", Optional.ofNullable(params.get("shipName")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_ADDR1", Optional.ofNullable(params.get("shipAddr1")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_ADDR2", Optional.ofNullable(params.get("shipAddr2")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_CITY", Optional.ofNullable(params.get("shipCity")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_STATE", Optional.ofNullable(params.get("shipState")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_ZIP", Optional.ofNullable(params.get("shipZip")).orElse("")));
+     level2Info.add(new BasicNameValuePair("LV2_ITEM_SHIP_COUNTRY", Optional.ofNullable(params.get("shipCountry")).orElse("")));
+   }
+   
+  /**
+  * Adds a line item for level 3 processing. Repeat method for each item up to 99 items.
+  * For Canadian and AMEX processors, ensure required Level 2 information is present.
+  */
+  public void addLineItem(HashMap<String, String> params)
+  {
+    String i = Integer.toString(lineItems.size() + 1);
+    String prefix = "LV3_ITEM" + i + "_";
+    
+    List<NameValuePair> lineItem = new ArrayList<>();
+    lineItem.add(new BasicNameValuePair(prefix + "UNIT_COST", params.get("unitCost")));
+    lineItem.add(new BasicNameValuePair(prefix + "QUANTITY", params.get("quantity")));
+    lineItem.add(new BasicNameValuePair(prefix + "ITEM_SKU", Optional.ofNullable(params.get("itemSKU")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "ITEM_DESCRIPTOR", Optional.ofNullable(params.get("descriptor")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "COMMODITY_CODE", Optional.ofNullable(params.get("commodityCode")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "PRODUCT_CODE", Optional.ofNullable(params.get("productCode")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "MEASURE_UNITS", Optional.ofNullable(params.get("measureUnits")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "ITEM_DISCOUNT", Optional.ofNullable(params.get("itemDiscount")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "TAX_RATE", Optional.ofNullable(params.get("taxRate")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "GOODS_TAX_RATE", Optional.ofNullable(params.get("goodsTaxRate")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "TAX_AMOUNT", Optional.ofNullable(params.get("taxAmount")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "GOODS_TAX_AMOUNT", Optional.ofNullable(params.get("goodsTaxAmount")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "CITY_TAX_RATE", Optional.ofNullable(params.get("cityTaxRate")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "CITY_TAX_AMOUNT", Optional.ofNullable(params.get("cityTaxAmount")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "COUNTY_TAX_RATE", Optional.ofNullable(params.get("countyTaxRate")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "COUNTY_TAX_AMOUNT", Optional.ofNullable(params.get("countyTaxAmount")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "STATE_TAX_RATE", Optional.ofNullable(params.get("stateTaxRate")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "STATE_TAX_AMOUNT", Optional.ofNullable(params.get("stateTaxAmount")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "CUST_SKU", Optional.ofNullable(params.get("custSKU")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "CUST_PO", Optional.ofNullable(params.get("custPO")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "SUPPLEMENTAL_DATA", Optional.ofNullable(params.get("supplementalData")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "GL_ACCOUNT_NUMBER", Optional.ofNullable(params.get("glAccountNumber")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "DIVISION_NUMBER", Optional.ofNullable(params.get("divisionNumber")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "PO_LINE_NUMBER", Optional.ofNullable(params.get("poLineNumber")).orElse("")));
+    lineItem.add(new BasicNameValuePair(prefix + "LINE_ITEM_TOTAL", Optional.ofNullable(params.get("lineItemTotal")).orElse("")));
+  
+    lineItems.add(lineItem);
   }
 
   /**
@@ -394,6 +524,16 @@ public class BluePay
   }
   
   /**
+   * Sets the customer's company name.
+   *
+   * @param companyName A string containing the companyName.  
+   *
+   */
+  public void setCompanyName(String companyName) {
+    COMPANY_NAME = companyName;
+  }
+  
+  /**
    * Adds rebilling to an AUTH or SALE.  
    *
    * @param amount A string containing the amount to rebill.
@@ -441,10 +581,24 @@ public class BluePay
    *
    */ 
   public void cancelRebill(String rebillID){
-	  TRANSACTION_TYPE = "SET";
-	  REBILL_STATUS = "stopped";
-    REBILL_ID = rebillID;
-    API = "bp20rebadmin";
+	TRANSACTION_TYPE = "SET";
+	REBILL_STATUS = "stopped";
+    	REBILL_ID = rebillID;
+    	API = "bp20rebadmin";
+  }
+	
+  /**
+   * Restarts an existing rebilling cycle.  
+   *
+   * @param rebillID A 12 digit string containing the rebill ID.
+   *
+   */ 
+  public void restartRebill(HashMap<String, String> params) {
+  	TRANSACTION_TYPE = "SET";
+	REBILL_ID = params.get("rebillID");
+	NEXT_DATE = params.get("nextDate");
+	REBILL_STATUS = "active";
+	API = "bp20rebadmin";
   }
   
   /**
@@ -590,6 +744,32 @@ public class BluePay
     }
     return code.toString();
   }
+
+  /**
+   * Calculates a hex sha256 based on input.
+   *
+   * @param message String to calculate sha256 of.
+   *
+   */
+  private String sha256(String message) throws java.security.NoSuchAlgorithmException
+  {
+    MessageDigest sha256 = null;
+    try {
+      sha256 = MessageDigest.getInstance("SHA-256");
+    }
+    catch (java.security.NoSuchAlgorithmException ex) {
+      ex.printStackTrace();
+      throw ex;
+    }
+    byte[] dig = sha256.digest((byte[]) message.getBytes());
+    StringBuffer code = new StringBuffer();
+    for (int i = 0; i < dig.length; ++i)
+    {
+      code.append(Integer.toHexString(0x0100 + (dig[i] & 0x00FF)).substring(1));
+    }
+    return code.toString();
+  }
+
   /**
    * Calculates a hex MD5 based on input.
    *
@@ -615,64 +795,82 @@ public class BluePay
     return code.toString();
   }
 
+  /**
+   * Generates the TAMPER_PROOF_SEAL to used to validate each transaction
+   *
+   * @return tps The Tamper Proof Seal
+   *
+   */
 
+  public String generateTPS(String message, String hashType) throws java.security.NoSuchAlgorithmException {
+    if (BP_SECRET_KEY == null) {
+      return "SECRET KEY NOT PROVIDED";
+    }
+    String tpsHash = "";
+    if(hashType.equals("HMAC_SHA256")) {
+      HMAC h = new HMAC(BP_SECRET_KEY, message, "SHA-256");
+      tpsHash = h.getHMAC();
+    } else if (hashType.equals("SHA512")) {
+      tpsHash = sha512(BP_SECRET_KEY + message);
+    } else if (hashType.equals("SHA256")) {
+        tpsHash = sha256(BP_SECRET_KEY + message);
+    } else if (hashType.equals("MD5")) {
+      tpsHash = md5(BP_SECRET_KEY + message);
+    } else {
+      HMAC h = new HMAC(BP_SECRET_KEY, message, "SHA-512");
+      tpsHash = h.getHMAC();
+    }
+    return tpsHash;
+  }
 
   /**
-   * Calculates the TAMPER_PROOF_SEAL string to send with each transaction
+   * Calculates the TAMPER_PROOF_SEAL string used to generate the Tamper Proof Seal
    *
    * @return tps The Tamper Proof Seal
    *
    */
   private String calcTPS() throws java.security.NoSuchAlgorithmException {
-    // System.out.println("RRNO:");
-    // System.out.println(RRNO);
-    String tps = BP_SECRET_KEY + BP_MERCHANT + TRANSACTION_TYPE + AMOUNT + REBILLING 
-                 + REB_FIRST_DATE + REB_EXPR + REB_CYCLES + REB_AMOUNT + RRNO + BP_MODE;
-    return sha512(tps);
+    TRANSACTION_TYPE = TRANSACTION_TYPE != null ? TRANSACTION_TYPE : "";
+    AMOUNT = AMOUNT != null ? AMOUNT : "";
+    REBILLING = REBILLING != null ? REBILLING : "";
+    REB_FIRST_DATE = REB_FIRST_DATE != null ? REB_FIRST_DATE : "";
+    REB_EXPR = REB_EXPR != null ? REB_EXPR : "";
+    REB_CYCLES = REB_CYCLES != null ? REB_CYCLES : "";
+    REB_AMOUNT = REB_AMOUNT != null ? REB_AMOUNT : "";
+    RRNO = RRNO != null ? RRNO : "";
+    BP_MODE = BP_MODE != null ? BP_MODE : "";
+    String tps = BP_MERCHANT + TRANSACTION_TYPE + AMOUNT + REBILLING + 
+                REB_FIRST_DATE + REB_EXPR + REB_CYCLES + REB_AMOUNT + RRNO + BP_MODE;
+    return generateTPS(tps, TPS_HASH_TYPE);
   }
   
   /**
-   * Calculates the TAMPER_PROOF_SEAL string to send with each transaction
+   * Calculates the TAMPER_PROOF_SEAL string used to generate the Tamper Proof Seal
    *
    * @return tps The Tamper Proof Seal
    *
    */
   private String calcRebillTPS() throws java.security.NoSuchAlgorithmException {
-    String tps = BP_SECRET_KEY + BP_MERCHANT + TRANSACTION_TYPE + REBILL_ID;
-    return md5(tps);
+    String tps = BP_MERCHANT + TRANSACTION_TYPE + REBILL_ID;
+    return generateTPS(tps, TPS_HASH_TYPE);
   }
   
   /**
-   * Calculates the TAMPER_PROOF_SEAL string to send with each transaction
+   * Calculates the TAMPER_PROOF_SEAL string used to generate the Tamper Proof Seal
    *
    * @return tps The Tamper Proof Seal
    *
    */
   private String calcReportTPS() throws java.security.NoSuchAlgorithmException {
-    String tps = BP_SECRET_KEY + BP_MERCHANT + REPORT_START + REPORT_END;
-    return md5(tps);
-  }
-  
-  /**
-   * Calculates the TAMPER_PROOF_SEAL string to send with each transaction
-   *
-   * @return tps The Tamper Proof Seal
-   *
-   */
-  public String calcTransNotifyTPS(String secretKey, String transID, String transStatus, String transType, 
-		  String amount, String batchID, String batchStatus, String totalCount, String totalAmount, 
-		  String batchUploadID, String rebillID, String rebillAmount, String rebillStatus) 
-  throws java.security.NoSuchAlgorithmException {
-  	String tps = secretKey + transID + transStatus + transType + amount + batchID + batchStatus + 
-  	totalCount + totalAmount + batchUploadID + rebillID + rebillAmount + rebillStatus;
-  	return md5(tps);
+    String tps = BP_MERCHANT + REPORT_START + REPORT_END;
+    return generateTPS(tps, TPS_HASH_TYPE);
   }
 
   /**
   * Calls the methods necessary to generate a SHPF URL
   * Required arguments for generate_url:
   * @param merchantName: Merchant name that will be displayed in the payment page.
-  * @param returnURL: Link to be displayed on the transacton results page. Usually the merchant's web site home page.
+  * @param returnURL: Link to be displayed on the transaction results page. Usually the merchant's web site home page.
   * @param transactionType: SALE/AUTH -- Whether the customer should be charged or only check for enough credit available.
   * @param acceptDiscover: Yes/No -- Yes for most US merchants. No for most Canadian merchants.
   * @param acceptAmex: Yes/No -- Has an American Express merchant account been set up?
@@ -732,18 +930,36 @@ public class BluePay
     SHPF_FORM_ID  = params.get("paymentTemplate");
     RECEIPT_FORM_ID  = params.get("receiptTemplate");
     REMOTE_URL  = params.get("receiptTempRemoteURL");
+    SHPF_TPS_HASH_TYPE = "HMAC_SHA512";
+    RECEIPT_TPS_HASH_TYPE = SHPF_TPS_HASH_TYPE;
+    TPS_HASH_TYPE = setHashType( Optional.ofNullable(params.get("tpsHashType")).orElse("") );
     CARD_TYPES = setCardTypes();
-    RECEIPT_TPS_DEF = "SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF";
+    RECEIPT_TPS_DEF = "SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE";
     RECEIPT_TPS_STRING = setReceiptTpsString();
-    RECEIPT_TAMPER_PROOF_SEAL = calcURLTps(RECEIPT_TPS_STRING);
+    RECEIPT_TAMPER_PROOF_SEAL =  generateTPS(RECEIPT_TPS_STRING, RECEIPT_TPS_HASH_TYPE);
     RECEIPT_URL = setReceiptURL();
-    BP10EMU_TPS_DEF = addDefProtectedStatus("MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF");
+    BP10EMU_TPS_DEF = addDefProtectedStatus("MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF TPS_HASH_TYPE");
     BP10EMU_TPS_STRING = setBp10emuTpsString();
-    BP10EMU_TAMPER_PROOF_SEAL = calcURLTps(BP10EMU_TPS_STRING); 
-    SHPF_TPS_DEF = addDefProtectedStatus("SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF SHPF_TPS_DEF");
+    BP10EMU_TAMPER_PROOF_SEAL = generateTPS(BP10EMU_TPS_STRING, TPS_HASH_TYPE); 
+    SHPF_TPS_DEF = addDefProtectedStatus("SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF TPS_HASH_TYPE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE");
     SHPF_TPS_STRING = setShpfTpsString();
-    SHPF_TAMPER_PROOF_SEAL = calcURLTps(SHPF_TPS_STRING);      
+    SHPF_TAMPER_PROOF_SEAL = generateTPS(SHPF_TPS_STRING, SHPF_TPS_HASH_TYPE);      
     return calcURLResponse();
+  }
+
+  private String setHashType(String chosenHash)
+  {
+    String default_hash = "HMAC_SHA512";
+    chosenHash = chosenHash.toUpperCase();
+    String result = "";
+    String[] hashes = new String[] {"MD5", "SHA256", "SHA512", "HMAC_SHA256"};
+    List<String> hashList = Arrays.asList(hashes);
+    if ( hashList.contains(chosenHash) ) {
+      result = chosenHash;
+    } else {
+      result = default_hash;
+    }
+    return result;
   }
 
   /**
@@ -766,7 +982,7 @@ public class BluePay
   */
   public String setReceiptTpsString()
   {
-    return BP_SECRET_KEY + BP_MERCHANT + RECEIPT_FORM_ID + RETURN_URL + DBA + AMEX_IMAGE + DISCOVER_IMAGE + RECEIPT_TPS_DEF;
+    return BP_MERCHANT + RECEIPT_FORM_ID + RETURN_URL + DBA + AMEX_IMAGE + DISCOVER_IMAGE + RECEIPT_TPS_DEF + RECEIPT_TPS_HASH_TYPE;
   }
 
   /**
@@ -776,9 +992,8 @@ public class BluePay
   */
   public String setBp10emuTpsString()
   {
-    String bp10emu = BP_SECRET_KEY + BP_MERCHANT + RECEIPT_URL + RECEIPT_URL + RECEIPT_URL + BP_MODE + TRANSACTION_TYPE + BP10EMU_TPS_DEF;
+    String bp10emu = BP_MERCHANT + RECEIPT_URL + RECEIPT_URL + RECEIPT_URL + BP_MODE + TRANSACTION_TYPE + BP10EMU_TPS_DEF + TPS_HASH_TYPE;
     return addStringProtectedStatus(bp10emu);
-
   }
 
   /**
@@ -788,7 +1003,7 @@ public class BluePay
   */
   public String setShpfTpsString()
   {
-    String shpf = BP_SECRET_KEY + SHPF_FORM_ID + BP_MERCHANT + DBA + BP10EMU_TAMPER_PROOF_SEAL + AMEX_IMAGE + DISCOVER_IMAGE + BP10EMU_TPS_DEF + SHPF_TPS_DEF; 
+    String shpf = SHPF_FORM_ID + BP_MERCHANT + DBA + BP10EMU_TAMPER_PROOF_SEAL + AMEX_IMAGE + DISCOVER_IMAGE + BP10EMU_TPS_DEF + TPS_HASH_TYPE + SHPF_TPS_DEF + SHPF_TPS_HASH_TYPE; 
     return addStringProtectedStatus(shpf);
   }
 
@@ -805,13 +1020,14 @@ public class BluePay
     else 
     {
         output =  "https://secure.bluepay.com/interfaces/shpf?SHPF_FORM_ID=" + RECEIPT_FORM_ID +
-        "&SHPF_ACCOUNT_ID=" + BP_MERCHANT + 
-        "&SHPF_TPS_DEF="    + encodeURL(RECEIPT_TPS_DEF) + 
-        "&SHPF_TPS="        + encodeURL(RECEIPT_TAMPER_PROOF_SEAL) + 
-        "&RETURN_URL="      + encodeURL(RETURN_URL) +
-        "&DBA="             + encodeURL(DBA) + 
-        "&AMEX_IMAGE="      + encodeURL(AMEX_IMAGE) + 
-        "&DISCOVER_IMAGE="  + encodeURL(DISCOVER_IMAGE);
+        "&SHPF_ACCOUNT_ID="     + BP_MERCHANT + 
+        "&SHPF_TPS_DEF="        + encodeURL(RECEIPT_TPS_DEF) + 
+        "&SHPF_TPS_HASH_TYPE="  + encodeURL(RECEIPT_TPS_HASH_TYPE) +
+        "&SHPF_TPS="            + encodeURL(RECEIPT_TAMPER_PROOF_SEAL) + 
+        "&RETURN_URL="          + encodeURL(RETURN_URL) +
+        "&DBA="                 + encodeURL(DBA) + 
+        "&AMEX_IMAGE="          + encodeURL(AMEX_IMAGE) + 
+        "&DISCOVER_IMAGE="      + encodeURL(DISCOVER_IMAGE);
     }
     return output;
   }
@@ -819,7 +1035,7 @@ public class BluePay
   /**
   * Adds optional protected keys to a string. Must be used with GenerateURL.
   *
-  * @return additonal string of keys to be used when calculating the Tamperproof Seal
+  * @return additional string of keys to be used when calculating the Tamperproof Seal
   */
   public String addDefProtectedStatus(String input)
   {
@@ -869,16 +1085,6 @@ public class BluePay
   }
 
   /**
-  * Generates a Tamperproof Seal for a URL. Must be used with GenerateURL.
-  *
-  * @return Tamperproof Seal for a URL.
-  */
-  public String calcURLTps(String input) throws java.security.NoSuchAlgorithmException
-  {
-    return md5(input);
-  }
-
-  /**
   * Generates the final url for the Simple Hosted Payment Form. Must be used with GenerateURL.
   *
   * @return final Simple Hosted Payment Form URL
@@ -890,6 +1096,7 @@ public class BluePay
     "SHPF_FORM_ID="         + encodeURL(SHPF_FORM_ID)               +
     "&SHPF_ACCOUNT_ID="     + encodeURL(BP_MERCHANT)                +
     "&SHPF_TPS_DEF="        + encodeURL(SHPF_TPS_DEF)               +
+    "&SHPF_TPS_HASH_TYPE="  + encodeURL(SHPF_TPS_HASH_TYPE)         +
     "&SHPF_TPS="            + encodeURL(SHPF_TAMPER_PROOF_SEAL)     +
     "&MODE="                + encodeURL(BP_MODE)                    +
     "&TRANSACTION_TYPE="    + encodeURL(TRANSACTION_TYPE)           +
@@ -907,6 +1114,7 @@ public class BluePay
     "&DISCOVER_IMAGE="      + encodeURL(DISCOVER_IMAGE)             +
     "&REDIRECT_URL="        + encodeURL(RECEIPT_URL)                +
     "&TPS_DEF="             + encodeURL(BP10EMU_TPS_DEF)            +
+    "&TPS_HASH_TYPE="       + encodeURL(TPS_HASH_TYPE)              +
     "&CARD_TYPES="          + encodeURL(CARD_TYPES);               
   }
 
@@ -919,7 +1127,8 @@ public class BluePay
    */
   public HashMap<String,String> process() throws ClientProtocolException, IOException, NoSuchAlgorithmException {
     List <NameValuePair> nameValuePairs = new ArrayList <NameValuePair>();
-	  nameValuePairs.add(new BasicNameValuePair("MODE", BP_MODE));	
+	  nameValuePairs.add(new BasicNameValuePair("MODE", BP_MODE));
+    nameValuePairs.add(new BasicNameValuePair("RESPONSEVERSION", "5")); 
 	  if (API.equals("bpdailyreport2")) {
   		  BP_URL = "https://secure.bluepay.com/interfaces/bpdailyreport2";
   		  nameValuePairs.add(new BasicNameValuePair("ACCOUNT_ID", BP_MERCHANT));
@@ -930,6 +1139,7 @@ public class BluePay
   		  nameValuePairs.add(new BasicNameValuePair("QUERY_BY_SETTLEMENT", QUERY_BY_SETTLEMENT));
   		  nameValuePairs.add(new BasicNameValuePair("QUERY_BY_HIERARCHY", QUERY_BY_HIERARCHY));
   		  nameValuePairs.add(new BasicNameValuePair("EXCLUDE_ERRORS", EXCLUDE_ERRORS));
+        nameValuePairs.add(new BasicNameValuePair("TPS_HASH_TYPE", TPS_HASH_TYPE));
 	  } else if (API.equals("stq")) {
         BP_URL = "https://secure.bluepay.com/interfaces/stq";
   		  nameValuePairs.add(new BasicNameValuePair("ACCOUNT_ID", BP_MERCHANT));
@@ -938,6 +1148,7 @@ public class BluePay
   		  nameValuePairs.add(new BasicNameValuePair("REPORT_END_DATE", REPORT_END));
   		  nameValuePairs.add(new BasicNameValuePair("EXCLUDE_ERRORS", EXCLUDE_ERRORS));
   		  nameValuePairs.add(new BasicNameValuePair("id", ID));
+        nameValuePairs.add(new BasicNameValuePair("TPS_HASH_TYPE", TPS_HASH_TYPE));
 	  } else if(API.equals("bp10emu")) {
     	  BP_URL = "https://secure.bluepay.com/interfaces/bp10emu";
         nameValuePairs.add(new BasicNameValuePair("MERCHANT", BP_MERCHANT));
@@ -954,6 +1165,7 @@ public class BluePay
         nameValuePairs.add(new BasicNameValuePair("ZIPCODE", ZIP));
         nameValuePairs.add(new BasicNameValuePair("PHONE", PHONE));
         nameValuePairs.add(new BasicNameValuePair("EMAIL", EMAIL));
+        nameValuePairs.add(new BasicNameValuePair("COMPANY_NAME", COMPANY_NAME));
         nameValuePairs.add(new BasicNameValuePair("COUNTRY", COUNTRY));
         nameValuePairs.add(new BasicNameValuePair("RRNO", RRNO));
         nameValuePairs.add(new BasicNameValuePair("CUSTOM_ID", CUSTOM_ID1));
@@ -971,7 +1183,7 @@ public class BluePay
         nameValuePairs.add(new BasicNameValuePair("REB_CYCLES", REB_CYCLES));
         nameValuePairs.add(new BasicNameValuePair("REB_AMOUNT", REB_AMOUNT));
         nameValuePairs.add(new BasicNameValuePair("SWIPE", SWIPE));
-        nameValuePairs.add(new BasicNameValuePair("TPS_HASH_TYPE", "SHA512"));
+        nameValuePairs.add(new BasicNameValuePair("TPS_HASH_TYPE", TPS_HASH_TYPE));
         if (PAYMENT_TYPE.equals("CREDIT")) {
         	  nameValuePairs.add(new BasicNameValuePair("CC_NUM", CARD_NUM));  
         	  nameValuePairs.add(new BasicNameValuePair("CC_EXPIRES", CARD_EXPIRE));
@@ -995,9 +1207,34 @@ public class BluePay
     	  nameValuePairs.add(new BasicNameValuePair("REB_AMOUNT", REB_AMOUNT));
     	  nameValuePairs.add(new BasicNameValuePair("NEXT_AMOUNT", NEXT_AMOUNT));
     	  nameValuePairs.add(new BasicNameValuePair("STATUS", REBILL_STATUS));
+        nameValuePairs.add(new BasicNameValuePair("TPS_HASH_TYPE", TPS_HASH_TYPE));
     }
+	
+  	// Add Level 2 data, if available.
+  	if (level2Info.size() > 0) {
+  		nameValuePairs.addAll(level2Info);
+  	}
+  	
+  	// Add Level 3 item data, if available.
+  	if (lineItems.size() > 0) {
+  		for (List<NameValuePair> item: lineItems) {
+  			nameValuePairs.addAll(item);
+  		}
+  	}
+		
+    // Add customer token values, if available.
+    if (NEW_CUST_TOKEN != "") {
+      nameValuePairs.add(new BasicNameValuePair("NEW_CUST_TOKEN", NEW_CUST_TOKEN));
+    }
+    
+    if (CUST_TOKEN != "") {
+      nameValuePairs.add(new BasicNameValuePair("CUST_TOKEN", CUST_TOKEN));
+    }
+
     HttpClient httpclient = HttpClientBuilder.create().build();
     HttpPost httpost = new HttpPost(BP_URL);
+    httpost.addHeader("User-Agent", "BluePay Java Library/" + RELEASE_VERSION);
+    httpost.addHeader("Content-Type", "application/x-www-form-urlencoded");
     httpost.setEntity(new UrlEncodedFormEntity(nameValuePairs));
     HttpResponse responseString = httpclient.execute(httpost);
     if (BP_URL.equals("https://secure.bluepay.com/interfaces/bp10emu")) {
@@ -1044,11 +1281,11 @@ public class BluePay
   	  }
     }  
     return map;  
-  } 
+  }
 
-  /** Returns a single character indicating the result.
+  /** Returns a one word description indicating the result.
    *
-   * @return '1' = Approved, '0' = Declined, 'E' = Error
+   * @return 'APPROVED', 'DECLINED', 'ERROR' or 'MISSING'
    *
    */
   public String getStatus() {
@@ -1376,6 +1613,21 @@ public class BluePay
   	  return response.get("next_amount");
     } else {
     return null;
+    }
+  }
+
+  /**
+   * Returns the customer token response.
+   *
+   * @return String containing the CVV2 response or null if none.
+   *
+   */
+  public String getCustomerToken()
+  {
+    if(response.containsKey("CUST_TOKEN")) {
+        return response.get("CUST_TOKEN");
+    } else {
+        return null;
     }
   }
 

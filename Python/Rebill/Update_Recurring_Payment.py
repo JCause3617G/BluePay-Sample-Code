@@ -8,7 +8,7 @@
 # on the details of the initial setup of the rebilling cycle as well as the
 # updated rebilling cycle.
 ##
-
+from __future__ import print_function
 import os.path, sys
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir))
 from BluePay import BluePay
@@ -36,7 +36,7 @@ rebill.set_customer_information(
 
 rebill.set_cc_information(
     card_number = "4111111111111111",
-    card_expire = "1215",
+    card_expire = "1225",
     cvv2 = "123"
 )
 
@@ -65,7 +65,7 @@ if rebill.is_successful_response():
 
     # Sets an updated credit card expiration date
     payment_information_update.set_cc_information(
-        cc_expiration = '0121'
+        cc_expiration = '1229'
     )
     
     # Stores new card expiration date
@@ -99,13 +99,13 @@ if rebill.is_successful_response():
     rebill_update.process()
     
     # Read response from BluePay
-    print 'Rebill Status: ' + rebill_update.rebill_status_response
-    print 'Rebill ID: ' + rebill_update.rebill_id_response
-    print 'Rebill Creation Date: ' + rebill_update.creation_date_response
-    print 'Rebill Next Date: ' + rebill_update.next_date_response
-    print 'Rebill Schedule Expression: ' + rebill_update.sched_expression_response
-    print 'Rebill Cycles Remaining: ' + rebill_update.cycles_remaining_response
-    print 'Rebill Amount: ' + rebill_update.rebill_amount_response
-    print 'Rebill Next Amount: ' + rebill_update.next_date_response
+    print('Rebill Status: ' + rebill_update.rebill_status_response)
+    print('Rebill ID: ' + rebill_update.rebill_id_response)
+    print('Rebill Creation Date: ' + rebill_update.creation_date_response)
+    print('Rebill Next Date: ' + rebill_update.next_date_response)
+    print('Rebill Schedule Expression: ' + rebill_update.sched_expression_response)
+    print('Rebill Cycles Remaining: ' + rebill_update.cycles_remaining_response)
+    print('Rebill Amount: ' + rebill_update.rebill_amount_response)
+    print('Rebill Next Amount: ' + rebill_update.next_date_response)
 else:
-    print rebill.message_response
+    print(rebill.message_response)

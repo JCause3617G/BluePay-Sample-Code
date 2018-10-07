@@ -6,7 +6,6 @@
 * gateway account is used, make sure the MODE is set to TEST.
 *
 */
-
 class BluePay { 
     
     private $api;
@@ -25,6 +24,7 @@ class BluePay {
     private $state;
     private $zip;
     private $email;
+    private $companyName;
     private $phone;
     private $country;
 
@@ -38,6 +38,8 @@ class BluePay {
     private $amountFood;
     private $amountMisc;
     private $memo;
+    private $newCustToken;
+    private $custToken;
 
     // Credit card fields
     private $ccNum;
@@ -91,59 +93,112 @@ class BluePay {
 
     // Response fields
     private $transID;
+    private $status;
+    private $message;
     private $maskedAccount;
     private $cardType;
     private $customerBank;
+    private $response;
+    private $avsResp;
+    private $cvv2Resp;
+    private $rebid;
 
     private $postURL;
- 
+    private $tpsHashType = "HMAC_SHA512";
+
+    // Level 2 processing field
+    private $level2Info;
+    
+    // Level 3 processing field
+    private $lineItems;
+
     // Class constructor. Accepts:
     // $accID : Merchant's Account ID
     // $secretKey : Merchant's Secret Key
     // $mode : Transaction mode of either LIVE or TEST (default)
-    public function BluePay($accID, $secretKey, $mode) {
+    public function __construct($accID, $secretKey, $mode) {
         $this->accountID = $accID;
         $this->secretKey = $secretKey;
         $this->mode = $mode;
     }
 
     // Performs a SALE
-    public function sale($amount, $masterID=null) {
+    public function sale($params) {
         $this->api = 'bp10emu';
         $this->transType = "SALE";
-        $this->amount = $amount;
-        $this->masterID = $masterID;
+        $this->amount = $params["amount"];
+        if(isset($params["masterID"])) {
+            $this->masterID = $params["masterID"];
         }
+        if(isset($params["customerToken"])){
+            $this->custToken = $params["customerToken"];
+        }
+    }
 
     // Performs an AUTH
-    public function auth($amount, $masterID=null) {
+    public function auth($params) {
         $this->api = 'bp10emu';
         $this->transType = "AUTH";
-        $this->amount = $amount;
-        $this->masterID = $masterID;
+        $this->amount = $params["amount"];
+        if(isset($params["masterID"])) {
+            $this->masterID = $params["masterID"];
+        }
+        if(isset($params["customerToken"])){
+            $this->custToken = $params["customerToken"];
+        }
+        if(isset($params["newCustomerToken"]) && $params["newCustomerToken"] != FALSE) {
+            if ($params["newCustomerToken"] === TRUE){
+                $this->newCustToken = $this->randomString();
+            }
+            else {
+                $this->newCustToken = $params["newCustomerToken"];
+            }
+        }
     }
 
     // Performs a CAPTURE
-    public function capture($masterID, $amount=null) {
+    public function capture($params) {
         $this->api = 'bp10emu';
         $this->transType = "CAPTURE";
-        $this->masterID = $masterID;
-        $this->amount = $amount;
+        if(isset($params["masterID"])) {
+            $this->masterID = $params["masterID"];
+        }
+        if(isset($params["amount"])) {
+            $this->amount = $params["amount"];
+        }
     }
 
     // performs a REFUND
-    public function refund($masterID, $amount=null) {
+    public function refund($params) {
         $this->api = 'bp10emu';
         $this->transType = "REFUND";
-        $this->masterID = $masterID;
-        $this->amount = $amount;
+        if(isset($params["masterID"])) {
+            $this->masterID = $params["masterID"];
+        }
+        if(isset($params["amount"])) {
+            $this->amount = $params["amount"];
+        }
+    }
+    
+    // performs an UPDATE
+    public function update($params) {
+        $this->api = 'bp10emu';
+        $this->transType = "UPDATE";
+        if(isset($params["masterID"])) {
+            $this->masterID = $params["masterID"];
+        }
+        if(isset($params["amount"])) {
+            $this->amount = $params["amount"];
+        }
     }
 
     // performs a VOID
-    public function void($masterID) {
+    public function void($params) {
         $this->api = 'bp10emu';
         $this->transType = "VOID";
-        $this->masterID = $masterID;
+        if(isset($params["masterID"])) {
+            $this->masterID = $params["masterID"];
+        }
     }
 
     // Passes customer information into the transaction
@@ -171,6 +226,15 @@ class BluePay {
         }
         if(isset($params["country"])) {
             $this->country = $params["country"];
+        }
+        if(isset($params["phone"])) {
+            $this->phone = $params["phone"];
+        }
+        if(isset($params["email"])) {
+            $this->email = $params["email"];
+        }
+        if(isset($params["companyName"])) {
+            $this->companyName = $params["companyName"];
         }
     }
 
@@ -204,6 +268,72 @@ class BluePay {
         }
     }
 
+    // Adds information required for level 2 processing.
+    public function addLevel2Information($params) {
+        $this->level2Info = array(
+            'LV2_ITEM_TAX_RATE' => $params['taxRate'] ?? '',
+            'LV2_ITEM_GOODS_TAX_RATE' => $params['goodsTaxRate'] ?? '',
+            'LV2_ITEM_GOODS_TAX_AMOUNT' => $params['goodsTaxAmount'] ?? '',
+            'LV2_ITEM_SHIPPING_AMOUNT' => $params['shippingAmount'] ?? '',
+            'LV2_ITEM_DISCOUNT_AMOUNT' => $params['discountAmount'] ?? '',
+            'LV2_ITEM_CUST_PO' => $params['custPO'] ?? '',
+            'LV2_ITEM_GOODS_TAX_ID' => $params['goodsTaxID'] ?? '',
+            'LV2_ITEM_TAX_ID' => $params['taxID'] ?? '',
+            'LV2_ITEM_CUSTOMER_TAX_ID' => $params['customerTaxID'] ?? '',
+            'LV2_ITEM_DUTY_AMOUNT' => $params['dutyAmount'] ?? '',
+            'LV2_ITEM_SUPPLEMENTAL_DATA' => $params['supplementalData'] ?? '',
+            'LV2_ITEM_CITY_TAX_RATE' => $params['cityTaxRate'] ?? '',
+            'LV2_ITEM_CITY_TAX_AMOUNT' => $params['cityTaxAmount'] ?? '',
+            'LV2_ITEM_COUNTY_TAX_RATE' => $params['countyTaxRate'] ?? '',
+            'LV2_ITEM_COUNTY_TAX_AMOUNT' => $params['countyTaxAmount'] ?? '',
+            'LV2_ITEM_STATE_TAX_RATE' => $params['stateTaxRate'] ?? '',
+            'LV2_ITEM_STATE_TAX_AMOUNT' => $params['stateTaxAmount'] ?? '',
+            'LV2_ITEM_BUYER_NAME' => $params['buyerName'] ?? '',
+            'LV2_ITEM_CUSTOMER_REFERENCE' => $params['customerReference'] ?? '',
+            'LV2_ITEM_CUSTOMER_NUMBER' => $params['customerNumber'] ?? '',
+            'LV2_ITEM_SHIP_NAME' => $params['shipName'] ?? '',
+            'LV2_ITEM_SHIP_ADDR1' => $params['shipAddr1'] ?? '',
+            'LV2_ITEM_SHIP_ADDR2' => $params['shipAddr2'] ?? '',
+            'LV2_ITEM_SHIP_CITY' => $params['shipCity'] ?? '',
+            'LV2_ITEM_SHIP_STATE' => $params['shipState'] ?? '',
+            'LV2_ITEM_SHIP_ZIP' => $params['shipZip'] ?? '',
+            'LV2_ITEM_SHIP_COUNTRY' => $params['shipCountry'] ?? ''
+        );
+    }
+
+    // Adds a line item for level 3 processing. Repeat method for each item up to 99 items.
+    // For Canadian and AMEX processors, ensure required Level 2 information is present.
+    public function addLineItem($params) {
+        $i = count($this->lineItems) + 1;
+        $prefix = "LV3_ITEM${i}_";                                                 //  VALUE REQUIRED IN:
+        $this->lineItems[] = array(                                                //  USA | CANADA
+            "${prefix}UNIT_COST" => $params['unitCost'],                          //   *      *
+            "${prefix}QUANTITY" => $params['quantity'],                            //   *      *
+            "${prefix}ITEM_SKU" => $params['itemSKU'] ?? '',                      //          *
+            "${prefix}ITEM_DESCRIPTOR" => $params['descriptor'] ?? '',             //   *      *
+            "${prefix}COMMODITY_CODE" => $params['commodityCode'] ?? '',          //   *      *
+            "${prefix}PRODUCT_CODE" => $params['productCode'] ?? '',              //   *
+            "${prefix}MEASURE_UNITS" => $params['measureUnits'] ?? '',            //   *      *
+            "${prefix}ITEM_DISCOUNT" => $params['itemDiscount'] ?? '',            //          *
+            "${prefix}TAX_RATE" => $params['taxRate'] ?? '',                      //   *
+            "${prefix}GOODS_TAX_RATE" => $params['goodsTaxRate'] ?? '',          //          *
+            "${prefix}TAX_AMOUNT" => $params['taxAmount'] ?? '',                  //   *
+            "${prefix}GOODS_TAX_AMOUNT" => $params['goodsTaxAmount'] ?? '',      //   *
+            "${prefix}CITY_TAX_RATE" => $params['cityTaxRate'] ?? '',            //
+            "${prefix}CITY_TAX_AMOUNT" => $params['cityTaxAmount'] ?? '',        //
+            "${prefix}COUNTY_TAX_RATE" => $params['countyTaxRate'] ?? '',        //
+            "${prefix}COUNTY_TAX_AMOUNT" => $params['countyTaxAmount'] ?? '',    //
+            "${prefix}STATE_TAX_RATE" => $params['stateTaxRate'] ?? '',          //
+            "${prefix}STATE_TAX_AMOUNT" => $params['stateTaxAmount'] ?? '',      //
+            "${prefix}CUST_SKU" => $params['custSKU'] ?? '',                      //
+            "${prefix}CUST_PO" => $params['custPO'] ?? '',                        //
+            "${prefix}SUPPLEMENTAL_DATA" => $params['supplementalData'] ?? '',    //
+            "${prefix}GL_ACCOUNT_NUMBER" => $params['glAccountNumber'] ?? '',    //
+            "${prefix}DIVISION_NUMBER" => $params['divisionNumber'] ?? '',        //
+            "${prefix}PO_LINE_NUMBER" => $params['poLineNumber'] ?? '',          //
+            "${prefix}LINE_ITEM_TOTAL" => $params['lineItemTotal'] ?? ''         //   *
+        );
+    }
 
     // Passes rebilling information into the transaction
     public function setRebillingInformation($params) {
@@ -226,7 +356,7 @@ class BluePay {
     }
 
     // Passes value into INVOICE_ID field
-    public function setinvoiceID($invoiceID) {
+    public function setInvoiceID($invoiceID) {
         $this->invoiceID = $invoiceID;
     }
 
@@ -268,6 +398,11 @@ class BluePay {
     // Passes value into EMAIL field
     public function setEmail($email) {
         $this->email = $email;
+    }
+
+    // Passes value into COMPANY_NAME field
+    public function setCompanyName($companyName) {
+        $this->companyName = $companyName;
     }
 
     // Passes value into NEXT_DATE field
@@ -323,6 +458,18 @@ class BluePay {
         if(isset($params["templateID"])) {
                 $this->templateID = $params["templateID"];
         }
+    }
+
+    // Creates a random alphanumeric string for token identification
+    function randomString($length = 16) {
+        $str = "";
+        $characters = array_merge(range('A','Z'), range('a','z'), range('0','9'));
+        $max = count($characters) - 1;
+        for ($i = 0; $i < $length; $i++) {
+            $rand = mt_rand(0, $max);
+            $str .= $characters[$rand];
+        }
+        return $str;
     }
 
     // Updates an existing rebilling cycle's payment information.   
@@ -389,7 +536,7 @@ class BluePay {
 
     // Queries transactions by a specific Payment Type. Must be used with getSingleTransQuery
     public function queryByPaymentType($payType) {
-        $this->paymentType = $paymentType;
+        $this->paymentType = $payType;
     }
  
     // Queries transactions by a specific Transaction Type. Must be used with getSingleTransQuery
@@ -413,27 +560,47 @@ class BluePay {
     }
 
     // Functions for calculating the TAMPER_PROOF_SEAL
+    public final function createTPSHash($string, $hashType) {
+        if (!isset($this->secretKey)) {
+            return "SECRET KEY NOT PROVIDED";
+        }
+
+        $hash = "";
+
+        switch ($hashType) {
+            case "HMAC_SHA256":
+                $hash = hash_hmac("sha256", $string, $this->secretKey);
+                break;
+            case "SHA512":
+                $hash = bin2hex(hash('sha512', $this->secretKey . $string, true));
+                break;
+            case "SHA256":
+                $hash = bin2hex(hash('sha256', $this->secretKey . $string, true));
+                break;
+            case "MD5":
+                $hash = bin2hex(md5($this->secretKey . $string, true));
+                break;
+            default:
+                $hash = hash_hmac("sha512", $string, $this->secretKey);
+        }
+
+        return $hash;
+    }
+
     public final function calcTPS() {
-        $tpsString = $this->secretKey . $this->accountID . $this->transType . $this->amount . $this->doRebill . $this->rebillFirstDate .
+        $tpsString = $this->accountID . $this->transType . $this->amount . $this->doRebill . $this->rebillFirstDate .
         $this->rebillExpr . $this->rebillCycles . $this->rebillAmount . $this->masterID . $this->mode;
-        return bin2hex(hash('sha512', $tpsString, true));
+        return $this->createTPSHash($tpsString, $this->tpsHashType);
     }
 
     public final function calcRebillTPS() {
-        $tpsString = $this->secretKey . $this->accountID . $this->transType . $this->rebillID;
-        return bin2hex(md5($tpsString, true));
+        $tpsString = $this->accountID . $this->transType . $this->rebillID;
+        return $this->createTPSHash($tpsString, $this->tpsHashType);
     }
 
     public final function calcReportTPS() {
-        $tpsString = $this->secretKey . $this->accountID . $this->reportStartDate . $this->reportEndDate;
-        return bin2hex(md5($tpsString, true));
-    }
-
-    public static final function calcTransNotifyTPS($secretKey, $transID, $transStatus, $transType, $amount, $batchID, $batchStatus, 
-        $totalCount, $totalAmount, $batchUploadID, $rebillID, $rebillAmount, $rebillStatus) {
-        $tpsString = $secretKey + $transID + $transStatus + $transType + $amount + $batchID + $batchStatus + $totalCount +
-        $totalAmount + $batchUploadID + $rebillID + $rebillAmount + $rebillStatus;
-        return bin2hex(md5($tpsString, true));
+        $tpsString = $this->accountID . $this->reportStartDate . $this->reportEndDate;
+        return $this->createTPSHash($tpsString, $this->tpsHashType);
     }
 
     // Required arguments for generate_url:
@@ -496,19 +663,36 @@ class BluePay {
         $this->shpfFormID = empty($params['paymentTemplate']) ? 'mobileform01' : $params['paymentTemplate'];
         $this->receiptFormID = empty($params['receiptTemplate']) ? 'mobileresult01' : $params['receiptTemplate'];
         $this->remoteURL = empty($params['receiptTempRemoteURL']) ? '' : $params['receiptTempRemoteURL'];
+        $this->shpfTpsHashType = 'HMAC_SHA512';
+        $this->receiptTpsHashType = $this->shpfTpsHashType;
+        $this->tpsHashType = $this->setHashType($params['TpsHashType'] ?? '');
         $this->cardTypes = $this->setCardTypes();
-        $this->receiptTpsDef = 'SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF';
+        $this->receiptTpsDef = 'SHPF_ACCOUNT_ID SHPF_FORM_ID RETURN_URL DBA AMEX_IMAGE DISCOVER_IMAGE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE';
         $this->receiptTpsString = $this->setReceiptTpsString();
-        $this->receiptTamperProofSeal = $this->calcURLTps($this->receiptTpsString);
+        $this->receiptTamperProofSeal = $this->createTPSHash($this->receiptTpsString, $this->receiptTpsHashType);
         $this->receiptURL = $this->setReceiptURL();
-        $this->bp10emuTpsDef = $this->addDefProtectedStatus('MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF');
+        $this->bp10emuTpsDef = $this->addDefProtectedStatus('MERCHANT APPROVED_URL DECLINED_URL MISSING_URL MODE TRANSACTION_TYPE TPS_DEF TPS_HASH_TYPE');
         $this->bp10emuTpsString = $this->setBp10emuTpsString();
-        $this->bp10emuTamperProofSeal = $this->calcURLTps($this->bp10emuTpsString);
-        $this->shpfTpsDef = $this->addDefProtectedStatus('SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF SHPF_TPS_DEF');
+        $this->bp10emuTamperProofSeal = $this->createTPSHash($this->bp10emuTpsString, $this->tpsHashType);
+        $this->shpfTpsDef = $this->addDefProtectedStatus('SHPF_FORM_ID SHPF_ACCOUNT_ID DBA TAMPER_PROOF_SEAL AMEX_IMAGE DISCOVER_IMAGE TPS_DEF TPS_HASH_TYPE SHPF_TPS_DEF SHPF_TPS_HASH_TYPE');
         $this->shpfTpsString = $this->setShpfTpsString();
-        $this->shpfTamperProofSeal = $this->calcURLTps($this->shpfTpsString);
+        $this->shpfTamperProofSeal = $this->createTPSHash($this->shpfTpsString, $this->shpfTpsHashType);
         return $this->calcURLResponse();
     }
+
+    // Validates hash type or returns default
+    public function setHashType($chosen_hash) {
+        $default_hash = 'HMAC_SHA512';
+        $chosen_hash = strtoupper($chosen_hash);
+        $result = '';
+        if ( in_array($chosen_hash, array('MD5', 'SHA256', 'SHA512', 'HMAC_SHA256')) ){
+            $result = $chosen_hash;
+        } else {
+            $result = $default_hash;
+        }
+        return $result;
+    }
+
     // Sets the types of credit card images to use on the Simple Hosted Payment Form. Must be used with generateURL.
     public function setCardTypes() {
         $creditCards = 'vi-mc';
@@ -519,18 +703,18 @@ class BluePay {
 
     // Sets the receipt Tamperproof Seal string. Must be used with generateURL.
     public function setReceiptTpsString() {
-        return $this->secretKey . $this->accountID . $this->receiptFormID. $this->returnURL . $this->dba . $this->amexImage . $this->discoverImage . $this->receiptTpsDef; 
+        return $this->accountID . $this->receiptFormID. $this->returnURL . $this->dba . $this->amexImage . $this->discoverImage . $this->receiptTpsDef . $this->receiptTpsHashType; 
     }
 
     // Sets the bp10emu string that will be used to create a Tamperproof Seal. Must be used with generateURL.
     public function setBp10emuTpsString() {
-        $bp10emu = $this->secretKey . $this->accountID . $this->receiptURL . $this->receiptURL . $this->receiptURL . $this->mode . $this->transType . $this->bp10emuTpsDef;
+        $bp10emu = $this->accountID . $this->receiptURL . $this->receiptURL . $this->receiptURL . $this->mode . $this->transType . $this->bp10emuTpsDef . $this->tpsHashType;
         return $this->addStringProtectedStatus($bp10emu);
     }
 
     // Sets the Simple Hosted Payment Form string that will be used to create a Tamperproof Seal. Must be used with generateURL.
     public function setShpfTpsString() {
-        $shpf = $this->secretKey . $this->shpfFormID . $this->accountID . $this->dba . $this->bp10emuTamperProofSeal . $this->amexImage . $this->discoverImage . $this->bp10emuTpsDef . $this->shpfTpsDef; 
+        $shpf = $this->shpfFormID . $this->accountID . $this->dba . $this->bp10emuTamperProofSeal . $this->amexImage . $this->discoverImage . $this->bp10emuTpsDef . $this->tpsHashType . $this->shpfTpsDef . $this->shpfTpsHashType; 
         return $this->addStringProtectedStatus($shpf);
     }
 
@@ -540,13 +724,14 @@ class BluePay {
             return $this->remoteURL;
         } else {
             return 'https://secure.bluepay.com/interfaces/shpf?SHPF_FORM_ID=' . $this->receiptFormID. 
-            '&SHPF_ACCOUNT_ID=' . $this->accountID . 
-            '&SHPF_TPS_DEF='    . $this->encodeURL($this->receiptTpsDef) . 
-            '&SHPF_TPS='        . $this->encodeURL($this->receiptTamperProofSeal) . 
-            '&RETURN_URL='      . $this->encodeURL($this->returnURL) .
-            '&DBA='             . $this->encodeURL($this->dba) . 
-            '&AMEX_IMAGE='      . $this->encodeURL($this->amexImage) . 
-            '&DISCOVER_IMAGE='  . $this->encodeURL($this->discoverImage);
+            '&SHPF_ACCOUNT_ID='       . $this->accountID . 
+            '&SHPF_TPS_DEF='          . $this->encodeURL($this->receiptTpsDef) . 
+            '&SHPF_TPS_HASH_TYPE='    . $this->encodeURL($this->receiptTpsHashType) . 
+            '&SHPF_TPS='              . $this->encodeURL($this->receiptTamperProofSeal) . 
+            '&RETURN_URL='            . $this->encodeURL($this->returnURL) .
+            '&DBA='                   . $this->encodeURL($this->dba) . 
+            '&AMEX_IMAGE='            . $this->encodeURL($this->amexImage) . 
+            '&DISCOVER_IMAGE='        . $this->encodeURL($this->discoverImage);
         }
     }
 
@@ -584,11 +769,6 @@ class BluePay {
         return $encodedString;
     }
 
-    // Generates a Tamperproof Seal for a url. Must be used with generateURL.
-    public final function calcURLTps($tpsType) {
-        return bin2hex(md5($tpsType, true));
-    }
-
     // Generates the final url for the Simple Hosted Payment Form. Must be used with generateURL.
     public function calcURLResponse() {
         return                  
@@ -596,6 +776,7 @@ class BluePay {
         'SHPF_FORM_ID='         . $this->encodeURL($this->shpfFormID)               .
         '&SHPF_ACCOUNT_ID='     . $this->encodeURL($this->accountID)                .
         '&SHPF_TPS_DEF='        . $this->encodeURL($this->shpfTpsDef)               .
+        '&SHPF_TPS_HASH_TYPE='  . $this->encodeURL($this->shpfTpsHashType)          .
         '&SHPF_TPS='            . $this->encodeURL($this->shpfTamperProofSeal)      .
         '&MODE='                . $this->encodeURL($this->mode)                     .
         '&TRANSACTION_TYPE='    . $this->encodeURL($this->transType)                .
@@ -613,11 +794,19 @@ class BluePay {
         '&DISCOVER_IMAGE='      . $this->encodeURL($this->discoverImage)            .
         '&REDIRECT_URL='        . $this->encodeURL($this->receiptURL)               .
         '&TPS_DEF='             . $this->encodeURL($this->bp10emuTpsDef)            .
+        '&TPS_HASH_TYPE='       . $this->encodeURL($this->tpsHashType)              .
         '&CARD_TYPES='          . $this->encodeURL($this->cardTypes);
     }
 
     public function process() {
         $post["MODE"] = $this->mode;
+        $post["RESPONSEVERSION"] = '5'; # Response version to be returned
+        if (!empty($this->custToken)){
+            $post["CUST_TOKEN"] = $this->custToken;
+        }
+        if (!empty($this->newCustToken)){
+            $post["NEW_CUST_TOKEN"] = $this->newCustToken;
+        }
         // Case Statement based on which api is used
         switch ($this->api) {
             case "bp10emu":
@@ -634,6 +823,7 @@ class BluePay {
                 $post["ZIPCODE"] = $this->zip;
                 $post["PHONE"] = $this->phone;
                 $post["EMAIL"] = $this->email;
+                $post["COMPANY_NAME"] = $this->companyName;
                 $post["COUNTRY"] = $this->country;
                 $post["RRNO"] = $this->masterID;
                 $post["CUSTOM_ID"] = $this->customID1;
@@ -659,9 +849,9 @@ class BluePay {
                 $post["REB_AMOUNT"] = $this->rebillAmount;
                 $post["SWIPE"] = $this->trackData;  
                 $post["TAMPER_PROOF_SEAL"] = $this->calcTPS();  
-                $post["TPS_HASH_TYPE"] = "SHA512";
+                $post["TPS_HASH_TYPE"] = $this->tpsHashType;
                 if(isset($_SERVER["REMOTE_ADDR"])){
-                    $post["REMOTE_IP"] = $_SERVER["REMOTE_ADDR"];
+                    $post["CUSTOMER_IP"] = $_SERVER["REMOTE_ADDR"];
                 }
                 $this->postURL = "https://secure.bluepay.com/interfaces/bp10emu";
                 break;
@@ -674,6 +864,7 @@ class BluePay {
                 $post["QUERY_BY_SETTLEMENT"] = $this->queryBySettlement;
                 $post["QUERY_BY_HIERARCHY"] = $this->subaccountsSearched;
                 $post["EXCLUDE_ERRORS"] = $this->excludeErrors;
+                $post["TPS_HASH_TYPE"] = $this->tpsHashType;
                 $this->postURL = "https://secure.bluepay.com/interfaces/bpdailyreport2";
                 break;
             case "stq":
@@ -688,6 +879,7 @@ class BluePay {
                 $post["amount"] = $this->amount;
                 $post["name1"] = $this->name1;
                 $post["name2"] = $this->name2; 
+                $post["TPS_HASH_TYPE"] = $this->tpsHashType;
                 $this->postURL = "https://secure.bluepay.com/interfaces/stq";
                 break;
             case "bp20rebadmin":
@@ -701,19 +893,33 @@ class BluePay {
                 $post["REB_AMOUNT"] = $this->rebillAmount;
                 $post["NEXT_AMOUNT"] = $this->rebillNextAmount;
                 $post["STATUS"] = $this->rebillStatus;
+                $post["TPS_HASH_TYPE"] = $this->tpsHashType;
                 $post["TAMPER_PROOF_SEAL"] = $this->calcRebillTPS();
                 $this->postURL = "https://secure.bluepay.com/interfaces/bp20rebadmin";
             default:
         }
 
+        // Add Level 2 item data, if available
+        if(!empty($this->level2Info)){
+            $post = $post + $this->level2Info;
+        }
+
+        // Add Level 3 item data, if available
+        if(!empty($this->lineItems)){
+            foreach($this->lineItems as $item){
+                $post = $post + $item;
+                unset($item);
+            }
+        }
             /* perform the transaction */
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_URL, $this->postURL); // Set the URL
-            curl_setopt($ch, CURLOPT_USERAGENT, "Bluepay Payment");
+            curl_setopt($ch, CURLOPT_USERAGENT, "BluePay PHP Library/".RELEASE_VERSION);
             curl_setopt($ch, CURLOPT_POST, 1); // Perform a POST
             curl_setopt($ch, CURLOPT_HEADER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array('Expect:')); // Required for query strings greater than 1024 characters.
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0); // Turns off verification of the SSL certificate.
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 1); // Turns on verification of the SSL certificate.
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); // If not set, curl prints output to the browser
             curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
             if ($this->postURL == "https://secure.bluepay.com/interfaces/bp10emu") {
@@ -734,37 +940,44 @@ class BluePay {
         } // end Process function
 
     protected function parseResponse() {
-        parse_str($this->response);
-        $this->status = isset($Result) ? $Result : null;
-        $this->message = isset($MESSAGE) ? $MESSAGE : null;
-        $this->transID = isset($RRNO) ? $RRNO : null;
-        $this->maskedAccount = isset($PAYMENT_ACCOUNT) ? $PAYMENT_ACCOUNT : null;
-        $this->cardType = isset($CARD_TYPE) ? $CARD_TYPE : null;
-        $this->customerBank = isset($BANK_NAME) ? $BANK_NAME : null;
-        $this->avsResp = isset($AVS) ? $AVS : null;
-        $this->cvv2Resp = isset($CVV2) ? $CVV2 : null;
-        $this->authCode = isset($AUTH_CODE) ? $AUTH_CODE : null;
-        $this->rebid = isset($REBID) ? $REBID : null;
+        parse_str($this->response, $output);
+        $this->status = isset($output['Result']) ? $output['Result'] : null;
+        $this->message = isset($output['MESSAGE']) ? $output['MESSAGE'] : null;
+        $this->transID = isset($output['RRNO']) ? $output['RRNO'] : null;
+        $this->maskedAccount = isset($output['PAYMENT_ACCOUNT']) ? $output['PAYMENT_ACCOUNT'] : null;
+        $this->cardType = isset($output['CARD_TYPE']) ? $output['CARD_TYPE'] : null;
+        $this->customerBank = isset($output['BANK_NAME']) ? $output['BANK_NAME'] : null;
+        $this->avsResp = isset($output['AVS']) ? $output['AVS'] : null;
+        $this->cvv2Resp = isset($output['CVV2']) ? $output['CVV2'] : null;
+        $this->authCode = isset($output['AUTH_CODE']) ? $output['AUTH_CODE'] : null;
+        $this->rebid = isset($output['REBID']) ? $output['REBID'] : null;
 
         /* Rebilling response parameters */
-        $this->rebillID = isset($rebill_id) ? $rebill_id : null;
-        $this->templateID = isset($template_id) ? $template_id : null;
-        $this->rebillStatus = isset($status) ? $status : null;
-        $this->creationDate = isset($creation_date) ? $creation_date : null;
-        $this->nextDate = isset($next_date) ? $next_date : null;
-        $this->lastDate = isset($last_date) ? $last_date : null;
-        $this->scheduleExpression = isset($sched_expr) ? $sched_expr : null;
-        $this->cyclesRemaining = isset($cycles_remain) ? $cycles_remain : null;
-        $this->rebAmount = isset($reb_amount) ? $reb_amount : null;
-        $this->nextAmount = isset($next_amount) ? $next_amount : null;
+        $this->rebillID = isset($output['rebill_id']) ? $output['rebill_id'] : null;
+        $this->templateID = isset($output['template_id']) ? $output['template_id'] : null;
+        $this->rebillStatus = isset($output['status']) ? $output['status'] : null;
+        $this->creationDate = isset($output['creation_date']) ? $output['creation_date'] : null;
+        $this->nextDate = isset($output['next_date']) ? $output['next_date'] : null;
+        $this->lastDate = isset($output['last_date']) ? $output['last_date'] : null;
+        $this->scheduleExpression = isset($output['sched_expr']) ? $output['sched_expr'] : null;
+        $this->cyclesRemaining = isset($output['cycles_remain']) ? $output['cycles_remain'] : null;
+        $this->rebAmount = isset($output['reb_amount']) ? $output['reb_amount'] : null;
+        $this->nextAmount = isset($output['next_amount']) ? $output['next_amount'] : null;
 
         /* Reporting response parameters */
-        $this->masterID = isset($id) ? $id : null;
-        $this->name1 = isset($name1) ? $name1 : null;
-        $this->name2 = isset($name2) ? $name2 : null;
-        $this->paymentType = isset($payment_type) ? $payment_type : null;
-        $this->transType = isset($trans_type) ? $trans_type : null;
-        $this->amount = isset($amount) ? $amount : null;
+        $this->masterID = isset($output['id']) ? $output['id'] : null;
+        $this->name1 = isset($output['name1']) ? $output['name1'] : null;
+        $this->name2 = isset($output['name2']) ? $output['name2'] : null;
+        $this->paymentType = isset($output['payment_type']) ? $output['payment_type'] : null;
+        $this->transType = isset($output['trans_type']) ? $output['trans_type'] : null;
+        $this->amount = isset($output['amount']) ? $output['amount'] : null;
+
+        /* BP Stamp response parameters */
+        $this->bpStamp = isset($output['BP_STAMP']) ? $output['BP_STAMP'] : null;
+        $this->bpStampDef = isset($output['BP_STAMP_DEF']) ? $output['BP_STAMP_DEF'] : null;
+        $this->tpsHashType = isset($output['TPS_HASH_TYPE']) ? $output['TPS_HASH_TYPE'] : null;
+
+        $this->custToken = isset($output['CUST_TOKEN']) ? $output['CUST_TOKEN'] : null;
     }
 
     public function getResponse() { return $this->response; }
@@ -798,10 +1011,14 @@ class BluePay {
     public function getTransType() { return $this->transType; }
     public function getAmount() { return $this->amount; }
 
+    public function getCustToken() { return $this->custToken; }
+
     // Returns true if the transaction was approved and not a duplicate
     public function isSuccessfulResponse() {
         // return true;
         return ($this->getStatus() == "APPROVED" && $this->getMessage() != "DUPLICATE"); 
     }
 }
+
+define("RELEASE_VERSION", '3.0.2');
 ?>
